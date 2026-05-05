@@ -68,3 +68,17 @@ def extract_profile_from_documents(
         user=user,
         schema=ExtractedProfile,
     )
+
+
+def save_anschreiben_examples(
+    sources: list[Path], out_dir: Path
+) -> list[Path]:
+    """Read each source as text, save to out_dir as `NN_<stem>.txt`. Returns saved paths."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    saved: list[Path] = []
+    for i, src in enumerate(sources, start=1):
+        text = read_document_text(src)
+        out = out_dir / f"{i:02d}_{src.stem}.txt"
+        out.write_text(text, encoding="utf-8")
+        saved.append(out)
+    return saved
