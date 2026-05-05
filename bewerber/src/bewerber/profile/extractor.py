@@ -13,6 +13,7 @@ from bewerber.shared.profile_schema import (
 
 
 SUPPORTED_EXT = {".pdf", ".docx"}
+MAX_TOTAL_CHARS = 200_000
 
 EXTRACTOR_SYSTEM_PROMPT = """Du extrahierst Lebenslauf-Daten aus deutschen Bewerbungsunterlagen (Zeugnisse, alte Lebensläufe).
 Antworte ausschließlich auf Deutsch. Erfinde keine Daten.
@@ -51,12 +52,21 @@ def extract_profile_from_documents(
         raise FileNotFoundError(f"Keine PDF/DOCX-Dateien in {docs_dir}")
 
     parts: list[str] = []
+    used = 0
     for f in files:
+        if used >= MAX_TOTAL_CHARS:
+            parts.append(f"\n--- {f.name} ---\n<übersprungen: Token-Budget erreicht>\n")
+            continue
         try:
             text = read_document_text(f)
         except Exception as e:  # noqa: BLE001
             text = f"<Lesefehler: {e}>"
-        parts.append(f"\n--- {f.name} ---\n{text}\n")
+        chunk = f"\n--- {f.name} ---\n{text}\n"
+        remaining = MAX_TOTAL_CHARS - used
+        if len(chunk) > remaining:
+            chunk = chunk[:remaining]
+        parts.append(chunk)
+        used += len(chunk)
 
     user = (
         "Folgende Bewerbungsunterlagen liegen vor. "

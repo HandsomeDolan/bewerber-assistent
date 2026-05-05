@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr, Field, ConfigDict
 class Person(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
-    email: EmailStr
+    email: Optional[EmailStr] = None
     phone: Optional[str] = None
     adresse: Optional[str] = None
     linkedin: Optional[str] = None

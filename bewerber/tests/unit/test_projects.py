@@ -134,3 +134,18 @@ def test_scan_project_skips_llm_for_folder_with_only_lockfiles(tmp_path, mocker)
     out = scan_project(folder, llm=fake_llm, force=False)
     assert out is not None
     fake_llm.structured.assert_not_called()
+
+
+def test_gather_context_excludes_node_modules(tmp_path):
+    from bewerber.profile.projects import gather_project_context
+    folder = tmp_path / "1 With Deps"
+    folder.mkdir()
+    (folder / "README.md").write_text("# Real Content")
+    (folder / "node_modules").mkdir()
+    (folder / "node_modules" / "lodash").mkdir()
+    (folder / "node_modules" / "lodash" / "index.js").write_text("LIBRARY_CODE_NOISE")
+    (folder / "__pycache__").mkdir()
+    (folder / "__pycache__" / "x.cpython-311.pyc").touch()
+    ctx = gather_project_context(folder, max_chars=20_000)
+    assert "Real Content" in ctx
+    assert "LIBRARY_CODE_NOISE" not in ctx

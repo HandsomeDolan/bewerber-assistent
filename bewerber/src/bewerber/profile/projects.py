@@ -25,6 +25,7 @@ DENY_FILENAMES = {
 }
 
 DENY_SUFFIXES = (".min.js", ".min.css", ".bundle.js")
+DENY_DIRS = {"node_modules", "__pycache__", "dist", "build", "target", "venv", ".venv"}
 MAX_FILE_BYTES = 50_000
 
 SYSTEM_PROMPT = """Du bist ein Karriere-Coach. Du analysierst einen Projektordner und extrahierst die fachlichen Inhalte für einen Lebenslauf-Eintrag.
@@ -79,6 +80,7 @@ def gather_project_context(folder: Path, max_chars: int) -> str:
         and f.name not in DENY_FILENAMES
         and not any(f.name.endswith(s) for s in DENY_SUFFIXES)
         and not any(part.startswith(".") for part in f.parts)
+        and not any(part in DENY_DIRS for part in f.parts)
     ]
     files_in_priority.extend(sorted(other_files, key=lambda p: p.stat().st_size))
 
@@ -162,6 +164,7 @@ def _is_effectively_empty(folder: Path) -> bool:
             and f.name not in DENY_FILENAMES
             and not any(f.name.endswith(s) for s in DENY_SUFFIXES)
             and not any(part.startswith(".") for part in f.parts)
+            and not any(part in DENY_DIRS for part in f.parts)
         ):
             return False
     return True

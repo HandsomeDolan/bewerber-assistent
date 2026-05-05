@@ -107,3 +107,36 @@ def test_save_anschreiben_examples_creates_dir(tmp_path, mocker):
     saved = save_anschreiben_examples([src], out_dir)
     assert out_dir.is_dir()
     assert saved[0].parent == out_dir
+
+
+def test_extract_truncates_huge_document_set(tmp_path, mocker):
+    from bewerber.profile.extractor import MAX_TOTAL_CHARS
+    docs_dir = tmp_path / "Bewerbungsunterlagen"
+    docs_dir.mkdir()
+    # 5 fake docs each "containing" 100k chars of text → total 500k > MAX_TOTAL_CHARS
+    for i in range(5):
+        (docs_dir / f"doc{i}.pdf").write_bytes(b"x")
+
+    mocker.patch(
+        "bewerber.profile.extractor.read_document_text",
+        side_effect=lambda p: "X" * 100_000,
+    )
+
+    fake_llm = mocker.Mock()
+    fake_llm.structured.return_value = ExtractedProfile(
+        person=Person(name="X", email="x@y.de"),
+        berufsprofil="k",
+        zielposition=[],
+        ausbildung=[],
+        berufserfahrung=[],
+        zertifikate=[],
+        sprachen=[],
+        interessen=[],
+    )
+    extract_profile_from_documents(docs_dir, llm=fake_llm)
+
+    args, kwargs = fake_llm.structured.call_args
+    user_text = kwargs["user"]
+    assert len(user_text) <= MAX_TOTAL_CHARS + 1000  # allow some header overhead
+    # Last doc should show as skipped or be truncated
+    assert "Token-Budget" in user_text or len(user_text) <= MAX_TOTAL_CHARS + 1000
