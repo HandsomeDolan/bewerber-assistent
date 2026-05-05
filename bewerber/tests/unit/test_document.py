@@ -32,3 +32,22 @@ def test_missing_file_raises(tmp_path):
         pass
     else:
         raise AssertionError("expected FileNotFoundError")
+
+
+def test_read_docx_includes_table_cells(fixtures_dir: Path):
+    text = read_document_text(fixtures_dir / "sample_with_tables.docx")
+    assert "2020-2024" in text
+    assert "Projektmanager bei Magna" in text
+    assert "2016-2020" in text
+    assert "Entwickler bei Acme GmbH" in text
+
+
+def test_read_docx_includes_header_footer(fixtures_dir: Path):
+    text = read_document_text(fixtures_dir / "sample_with_tables.docx")
+    assert "Steve Eigenwillig — Lebenslauf" in text
+    assert "Seite 1 von 1" in text
+
+
+def test_read_docx_preserves_body_paragraphs_alongside_tables(fixtures_dir: Path):
+    text = read_document_text(fixtures_dir / "sample_with_tables.docx")
+    assert "Berufserfahrung:" in text
