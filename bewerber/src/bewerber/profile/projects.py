@@ -40,7 +40,7 @@ def folder_to_title(folder_name: str) -> str:
     title = re.sub(r"^\d+\s+", "", folder_name)
     title = title.replace("_", " ")
     # Capitalise words that consist purely of letters (leave words with digits intact, e.g. "n8n")
-    words = [w.capitalize() if w.isalpha() else w for w in title.split(" ")]
+    words = [w.capitalize() if w.isalpha() and w.islower() else w for w in title.split(" ")]
     return " ".join(words)
 
 

@@ -83,3 +83,12 @@ def test_id_slug_from_folder_name():
     assert folder_to_id("8 n8n_builder") == "8-n8n-builder"
     assert folder_to_id("1 Kleinanzeigen") == "1-kleinanzeigen"
     assert folder_to_id("16 API Gateway") == "16-api-gateway"
+
+
+def test_folder_to_title_preserves_existing_caps():
+    from bewerber.profile.projects import folder_to_title
+    assert folder_to_title("8 n8n_builder") == "n8n Builder"
+    assert folder_to_title("1 Kleinanzeigen") == "Kleinanzeigen"
+    assert folder_to_title("16 API Gateway") == "API Gateway"
+    assert folder_to_title("16 Marketing") == "Marketing"
+    assert folder_to_title("9 HTTP Requests") == "HTTP Requests"
