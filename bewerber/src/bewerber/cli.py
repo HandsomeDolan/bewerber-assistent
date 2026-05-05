@@ -1,6 +1,10 @@
 import click
 from dotenv import load_dotenv
 
+from bewerber.profile.projects import scan_project
+from bewerber.shared.llm import LLMClient
+from bewerber.shared.paths import Paths
+
 load_dotenv()
 
 
@@ -37,8 +41,20 @@ def profile_sync() -> None:
 @click.option("--force", is_flag=True, help="Überschreibe bestehende _profile.md")
 def projects_scan(force: bool) -> None:
     """Erzeugt _profile.md in jedem Projektordner."""
-    click.echo(f"not yet implemented (force={force})")
-    raise click.exceptions.Exit(2)
+    paths = Paths()
+    llm = LLMClient()
+    folders = paths.project_folders()
+    if not folders:
+        click.echo(f"Keine Projektordner gefunden in {paths.documents}")
+        return
+    click.echo(f"Scanne {len(folders)} Projektordner …")
+    for folder in folders:
+        result = scan_project(folder, llm=llm, force=force)
+        if result is None:
+            click.echo(f"  skip (existiert): {folder.name}")
+        else:
+            click.echo(f"  ok:  {folder.name} → {result.name}")
+    click.echo("Fertig.")
 
 
 if __name__ == "__main__":
