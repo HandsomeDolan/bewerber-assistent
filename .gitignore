@@ -1,0 +1,26 @@
+# Cloned reference repos (not part of this project)
+scope/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment & secrets
+.env
+.env.local
+
+# Personal data (user-specific, generated)
+bewerber/master_profile.yaml
+bewerber/state.json
+bewerber/state.json.bak
+bewerber/anschreiben_examples/
+bewerber/dashboard.html
+
+# OS
+.DS_Store
