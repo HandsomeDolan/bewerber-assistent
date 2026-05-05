@@ -39,11 +39,18 @@ class Paths:
         return self.bewerber_dir / "anschreiben_examples"
 
     def project_folders(self) -> list[Path]:
-        """Return sorted list of folders matching `<number> <name>` pattern."""
+        """Return folders matching `<number> <name>`, sorted by (leading_number, name)."""
         if not self.documents.is_dir():
             return []
-        return sorted(
+        candidates = [
             p
             for p in self.documents.iterdir()
             if p.is_dir() and self.PROJECT_FOLDER_REGEX.match(p.name)
-        )
+        ]
+        return sorted(candidates, key=self._sort_key)
+
+    @staticmethod
+    def _sort_key(p: Path) -> tuple[int, str]:
+        """Sort by (leading number, full name) for natural ordering."""
+        leading = p.name.split(None, 1)[0]
+        return (int(leading), p.name)

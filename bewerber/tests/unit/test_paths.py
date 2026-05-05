@@ -19,12 +19,47 @@ def test_paths_default_workspace(monkeypatch):
     assert p.workspace == Path("/Users/steve/Documents/Bewerber_Assistent")
 
 
-def test_project_folders_filter(monkeypatch, tmp_path):
+def test_project_folders_filter_excludes_non_matching(monkeypatch, tmp_path):
     monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path))
     (tmp_path / "1 Kleinanzeigen").mkdir()
     (tmp_path / "11 MerchApp").mkdir()
     (tmp_path / "Bewerbungsunterlagen").mkdir()
     (tmp_path / "random_file.pdf").touch()
+    (tmp_path / "5 fakefile.txt").touch()  # matches regex but is a file
     p = Paths()
-    folders = sorted(f.name for f in p.project_folders())
-    assert folders == ["1 Kleinanzeigen", "11 MerchApp"]
+    names = [f.name for f in p.project_folders()]
+    assert "Bewerbungsunterlagen" not in names
+    assert "random_file.pdf" not in names
+    assert "5 fakefile.txt" not in names
+    assert set(names) == {"1 Kleinanzeigen", "11 MerchApp"}
+
+
+def test_project_folders_natural_numeric_sort(monkeypatch, tmp_path):
+    monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path))
+    for name in [
+        "1 Kleinanzeigen",
+        "2 Instagram",
+        "10 DeadEnd",
+        "11 MerchApp",
+        "16 API Gateway",
+        "16 Marketing",
+        "17 Kalkulation Offline",
+    ]:
+        (tmp_path / name).mkdir()
+    p = Paths()
+    names = [f.name for f in p.project_folders()]
+    assert names == [
+        "1 Kleinanzeigen",
+        "2 Instagram",
+        "10 DeadEnd",
+        "11 MerchApp",
+        "16 API Gateway",
+        "16 Marketing",
+        "17 Kalkulation Offline",
+    ]
+
+
+def test_project_folders_returns_empty_when_documents_missing(monkeypatch, tmp_path):
+    monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path / "nonexistent"))
+    p = Paths()
+    assert p.project_folders() == []
