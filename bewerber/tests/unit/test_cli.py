@@ -64,3 +64,66 @@ def test_profile_sync_calls_sync_function(mocker):
     assert result.exit_code == 0, result.output
     assert "3" in result.output
     fake_sync.assert_called_once()
+
+
+import yaml
+from bewerber.shared.profile_schema import Person
+from bewerber.profile.extractor import ExtractedProfile
+
+
+def test_profile_init_writes_master_yaml(tmp_path, monkeypatch, mocker):
+    bewerb_dir = tmp_path / "bewerber"
+    bewerb_dir.mkdir(parents=True)
+    docs_dir = tmp_path / "Bewerbungsunterlagen"
+    docs_dir.mkdir()
+    (docs_dir / "Lebenslauf.pdf").write_bytes(b"x")
+    (docs_dir / "Bewerbungen").mkdir()
+    (docs_dir / "Bewerbungen" / "Steve_KI.docx").write_bytes(b"x")
+
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path))
+    monkeypatch.setattr(
+        "bewerber.cli.extract_profile_from_documents",
+        lambda d, llm: ExtractedProfile(
+            person=Person(name="Steve", email="s@x.de"),
+            berufsprofil="profil",
+            zielposition=[],
+            ausbildung=[],
+            berufserfahrung=[],
+            zertifikate=[],
+            sprachen=[],
+            interessen=[],
+        ),
+    )
+    monkeypatch.setattr("bewerber.cli.LLMClient", mocker.Mock)
+    monkeypatch.setattr(
+        "bewerber.cli.save_anschreiben_examples",
+        lambda srcs, out: [out / "01_x.txt"],
+    )
+
+    runner = CliRunner()
+    # answer "no" to interactive anschreiben selection prompt → empty list
+    result = runner.invoke(main, ["profile", "init"], input="\n")
+    assert result.exit_code == 0, result.output
+
+    master = bewerb_dir / "master_profile.yaml"
+    assert master.exists()
+    data = yaml.safe_load(master.read_text())
+    assert data["person"]["name"] == "Steve"
+
+
+def test_profile_init_aborts_if_master_exists_and_no_force(tmp_path, monkeypatch):
+    bewerb_dir = tmp_path / "bewerber"
+    bewerb_dir.mkdir(parents=True)
+    (bewerb_dir / "master_profile.yaml").write_text("person: {name: existing}")
+    docs_dir = tmp_path / "Bewerbungsunterlagen"
+    docs_dir.mkdir()
+    (docs_dir / "x.pdf").write_bytes(b"x")
+
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path))
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["profile", "init"])
+    assert result.exit_code != 0
+    assert "existiert" in result.output.lower() or "force" in result.output.lower()
