@@ -92,3 +92,45 @@ def test_folder_to_title_preserves_existing_caps():
     assert folder_to_title("16 API Gateway") == "API Gateway"
     assert folder_to_title("16 Marketing") == "Marketing"
     assert folder_to_title("9 HTTP Requests") == "HTTP Requests"
+
+
+def test_gather_context_excludes_lockfiles(tmp_path):
+    from bewerber.profile.projects import gather_project_context
+    folder = tmp_path / "1 With Lockfile"
+    folder.mkdir()
+    (folder / "README.md").write_text("# Real Content")
+    (folder / "package-lock.json").write_text('{"flood": "' + ("X" * 5000) + '"}')
+    (folder / "main.min.js").write_text("Y" * 5000)
+    ctx = gather_project_context(folder, max_chars=20_000)
+    assert "Real Content" in ctx
+    assert "flood" not in ctx
+    assert "YYYY" not in ctx
+
+
+def test_scan_project_skips_llm_for_empty_folder(tmp_path, mocker):
+    folder = tmp_path / "1 Empty"
+    folder.mkdir()
+    # No README, no code — just a hidden file and a binary
+    (folder / "image.png").write_bytes(b"\x89PNG fake")
+    (folder / ".git").mkdir()
+
+    fake_llm = mocker.Mock()
+    out = scan_project(folder, llm=fake_llm, force=False)
+
+    assert out is not None
+    assert out.exists()
+    fake_llm.structured.assert_not_called()
+    content = out.read_text()
+    assert "leer" in content.lower() or "(leer" in content
+
+
+def test_scan_project_skips_llm_for_folder_with_only_lockfiles(tmp_path, mocker):
+    folder = tmp_path / "5 OnlyLocks"
+    folder.mkdir()
+    (folder / "package-lock.json").write_text("{}")
+    (folder / "yarn.lock").write_text("")
+
+    fake_llm = mocker.Mock()
+    out = scan_project(folder, llm=fake_llm, force=False)
+    assert out is not None
+    fake_llm.structured.assert_not_called()

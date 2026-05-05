@@ -11,6 +11,20 @@ PROFILE_FILENAME = "_profile.md"
 
 PRIORITY_FILES = ["README.md", "readme.md", "claude.md", "CLAUDE.md"]
 EXTENSIONS_TO_SAMPLE = {".md", ".py", ".js", ".ts", ".json", ".yaml", ".yml", ".txt"}
+
+DENY_FILENAMES = {
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "Pipfile.lock",
+    "composer.lock",
+    "Gemfile.lock",
+    "go.sum",
+    "uv.lock",
+}
+
+DENY_SUFFIXES = (".min.js", ".min.css", ".bundle.js")
 MAX_FILE_BYTES = 50_000
 
 SYSTEM_PROMPT = """Du bist ein Karriere-Coach. Du analysierst einen Projektordner und extrahierst die fachlichen Inhalte für einen Lebenslauf-Eintrag.
@@ -62,6 +76,8 @@ def gather_project_context(folder: Path, max_chars: int) -> str:
         and f.suffix.lower() in EXTENSIONS_TO_SAMPLE
         and f not in files_in_priority
         and f.name != PROFILE_FILENAME
+        and f.name not in DENY_FILENAMES
+        and not any(f.name.endswith(s) for s in DENY_SUFFIXES)
         and not any(part.startswith(".") for part in f.parts)
     ]
     files_in_priority.extend(sorted(other_files, key=lambda p: p.stat().st_size))
@@ -106,12 +122,21 @@ def scan_project(
     if out.exists() and not force:
         return None
 
-    context = gather_project_context(folder, max_chars=max_chars)
-    user_prompt = f"Projektordner-Inhalt:\n\n{context}"
-
-    draft = llm.structured(
-        system=SYSTEM_PROMPT, user=user_prompt, schema=ProjectDraft
-    )
+    if _is_effectively_empty(folder):
+        # Don't waste LLM tokens on empty folders. Write a stub so user can fill it manually.
+        draft = ProjectDraft(
+            kurzbeschreibung="(leer — Ordner enthielt keine lesbaren Dateien beim Scan)",
+            rolle="",
+            skills_fachlich=[],
+            skills_methodisch=[],
+            erfolge=[],
+        )
+    else:
+        context = gather_project_context(folder, max_chars=max_chars)
+        user_prompt = f"Projektordner-Inhalt:\n\n{context}"
+        draft = llm.structured(
+            system=SYSTEM_PROMPT, user=user_prompt, schema=ProjectDraft
+        )
 
     body = _render_markdown(draft)
     post = frontmatter.Post(
@@ -122,6 +147,24 @@ def scan_project(
     )
     out.write_text(frontmatter.dumps(post), encoding="utf-8")
     return out
+
+
+def _is_effectively_empty(folder: Path) -> bool:
+    """Return True if folder has no files matching the scan extensions and no priority files."""
+    for name in PRIORITY_FILES:
+        if (folder / name).is_file():
+            return False
+    for f in folder.rglob("*"):
+        if (
+            f.is_file()
+            and f.suffix.lower() in EXTENSIONS_TO_SAMPLE
+            and f.name != PROFILE_FILENAME
+            and f.name not in DENY_FILENAMES
+            and not any(f.name.endswith(s) for s in DENY_SUFFIXES)
+            and not any(part.startswith(".") for part in f.parts)
+        ):
+            return False
+    return True
 
 
 def _render_markdown(draft: ProjectDraft) -> str:
