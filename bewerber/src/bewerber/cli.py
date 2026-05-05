@@ -2,6 +2,7 @@ import click
 from dotenv import load_dotenv
 
 from bewerber.profile.projects import scan_project
+from bewerber.profile.sync import sync_projects_into_profile
 from bewerber.shared.llm import LLMClient
 from bewerber.shared.paths import Paths
 
@@ -33,8 +34,9 @@ def profile_init() -> None:
 @profile.command("sync")
 def profile_sync() -> None:
     """Merged _profile.md aus Projektordnern in master_profile.yaml."""
-    click.echo("not yet implemented")
-    raise click.exceptions.Exit(2)
+    n = sync_projects_into_profile()
+    paths = Paths()
+    click.echo(f"{n} Projekte synchronisiert → {paths.master_profile}")
 
 
 @projects.command("scan")

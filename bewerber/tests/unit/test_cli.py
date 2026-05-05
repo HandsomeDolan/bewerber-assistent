@@ -54,3 +54,13 @@ def test_projects_scan_passes_force_flag(tmp_path, monkeypatch, mocker):
     assert result.exit_code == 0
     _, kwargs = fake_scan.call_args
     assert kwargs.get("force") is True
+
+
+def test_profile_sync_calls_sync_function(mocker):
+    fake_sync = mocker.patch("bewerber.cli.sync_projects_into_profile")
+    fake_sync.return_value = 3
+    runner = CliRunner()
+    result = runner.invoke(main, ["profile", "sync"])
+    assert result.exit_code == 0, result.output
+    assert "3" in result.output
+    fake_sync.assert_called_once()
