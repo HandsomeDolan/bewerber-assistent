@@ -127,3 +127,71 @@ def test_profile_init_aborts_if_master_exists_and_no_force(tmp_path, monkeypatch
     result = runner.invoke(main, ["profile", "init"])
     assert result.exit_code != 0
     assert "existiert" in result.output.lower() or "force" in result.output.lower()
+
+
+def test_tailor_requires_firma_and_rolle(tmp_path, mocker):
+    posting = tmp_path / "posting.txt"
+    posting.write_text("some job posting")
+    runner = CliRunner()
+    result = runner.invoke(main, ["tailor", "--posting-file", str(posting)])
+    assert result.exit_code != 0
+    assert "firma" in result.output.lower() or "missing" in result.output.lower()
+
+
+def test_tailor_from_file_invokes_orchestrator(tmp_path, monkeypatch, mocker):
+    posting = tmp_path / "posting.txt"
+    posting.write_text("KI Manager bei BMW. Python gesucht.")
+
+    monkeypatch.setattr("bewerber.cli.LLMClient", mocker.Mock)
+    fake_tailor = mocker.patch("bewerber.cli.tailor")
+    fake_result = mocker.Mock()
+    fake_result.output_dir = tmp_path / "out"
+    fake_result.lebenslauf_pdf = tmp_path / "out" / "lebenslauf.pdf"
+    fake_result.anschreiben_pdf = tmp_path / "out" / "anschreiben.pdf"
+    fake_tailor.return_value = fake_result
+
+    runner = CliRunner()
+    result = runner.invoke(main, [
+        "tailor",
+        "--posting-file", str(posting),
+        "--firma", "BMW Group",
+        "--rolle", "KI Manager",
+        "--datum", "2026-06-12",
+        "--kontakt", "Anna Müller",
+    ])
+    assert result.exit_code == 0, result.output
+
+    inp = fake_tailor.call_args.args[0]
+    assert inp.firma == "BMW Group"
+    assert inp.rolle == "KI Manager"
+    assert inp.datum == "2026-06-12"
+    assert inp.kontakt_name == "Anna Müller"
+    assert inp.source_url is None
+    assert "KI Manager bei BMW" in inp.posting_text
+
+
+def test_tailor_from_url_calls_snapshot(tmp_path, monkeypatch, mocker):
+    monkeypatch.setattr("bewerber.cli.LLMClient", mocker.Mock)
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(tmp_path))
+
+    fake_snap = mocker.patch("bewerber.cli.snapshot_url", return_value="Posting text from URL.")
+    fake_tailor = mocker.patch("bewerber.cli.tailor")
+    fake_result = mocker.Mock()
+    fake_result.output_dir = tmp_path / "out"
+    fake_result.lebenslauf_pdf = tmp_path / "out" / "lebenslauf.pdf"
+    fake_result.anschreiben_pdf = tmp_path / "out" / "anschreiben.pdf"
+    fake_tailor.return_value = fake_result
+
+    runner = CliRunner()
+    result = runner.invoke(main, [
+        "tailor",
+        "--url", "https://example.com/job/123",
+        "--firma", "BMW",
+        "--rolle", "Manager",
+        "--datum", "2026-06-12",
+    ])
+    assert result.exit_code == 0, result.output
+    fake_snap.assert_called_once()
+    inp = fake_tailor.call_args.args[0]
+    assert inp.source_url == "https://example.com/job/123"
+    assert inp.posting_text.startswith("Posting text from URL")

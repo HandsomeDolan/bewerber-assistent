@@ -1,3 +1,7 @@
+import tempfile
+from datetime import date
+from pathlib import Path
+
 import click
 import yaml
 from dotenv import load_dotenv
@@ -10,6 +14,9 @@ from bewerber.profile.projects import scan_project
 from bewerber.profile.sync import sync_projects_into_profile
 from bewerber.shared.llm import LLMClient
 from bewerber.shared.paths import Paths
+from bewerber.tailoring.orchestrator import TailorInput, tailor
+from bewerber.tailoring.posting import read_posting_from_file
+from bewerber.tailoring.snapshot import snapshot_url
 
 load_dotenv()
 
@@ -109,6 +116,55 @@ def projects_scan(force: bool) -> None:
         else:
             click.echo(f"  ok:  {folder.name} → {result.name}")
     click.echo("Fertig.")
+
+
+@main.command("tailor")
+@click.option("--url", help="URL der Stellenausschreibung (wird via Playwright gesnapshotet).")
+@click.option("--posting-file", "posting_file", type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="Pfad zu einer Ausschreibung als .txt/.pdf/.docx.")
+@click.option("--firma", help="Firmenname (für Ordnername + Anschreiben).")
+@click.option("--rolle", help="Rollenbezeichnung (für Ordnername + Betreff).")
+@click.option("--kontakt", "kontakt_name", help="Name der Ansprechperson (für Anrede).")
+@click.option("--datum", help="Datum YYYY-MM-DD (default: heute).")
+def cmd_tailor(url, posting_file, firma, rolle, kontakt_name, datum):
+    """Erzeugt tailored Lebenslauf + Anschreiben für eine Stellenausschreibung."""
+    if not url and not posting_file:
+        click.echo("Fehler: --url ODER --posting-file muss angegeben werden.")
+        raise click.exceptions.Exit(1)
+    if url and posting_file:
+        click.echo("Fehler: --url und --posting-file nicht gleichzeitig.")
+        raise click.exceptions.Exit(1)
+    if not firma or not rolle:
+        click.echo("Fehler: --firma und --rolle sind erforderlich.")
+        raise click.exceptions.Exit(1)
+
+    datum = datum or date.today().isoformat()
+    llm = LLMClient()
+    snapshot_dir: Path | None = None
+
+    if posting_file:
+        posting = read_posting_from_file(posting_file)
+        posting_text = posting.description
+        source_url = None
+        click.echo(f"Lese Ausschreibung aus {posting_file.name} …")
+    else:
+        click.echo(f"Snapshot {url} …")
+        snapshot_dir = Path(tempfile.mkdtemp(prefix="bewerber-snap-"))
+        posting_text = snapshot_url(url, snapshot_dir)
+        source_url = url
+
+    click.echo("Generiere Lebenslauf + Anschreiben …")
+    result = tailor(TailorInput(
+        posting_text=posting_text,
+        firma=firma, rolle=rolle, datum=datum,
+        kontakt_name=kontakt_name,
+        source_url=source_url,
+        snapshot_dir=snapshot_dir,
+        llm=llm,
+    ))
+    click.echo(f"\n✔ Bewerbungsordner: {result.output_dir}")
+    click.echo(f"  • Lebenslauf:    {result.lebenslauf_pdf.name}")
+    click.echo(f"  • Anschreiben:   {result.anschreiben_pdf.name}")
 
 
 if __name__ == "__main__":
