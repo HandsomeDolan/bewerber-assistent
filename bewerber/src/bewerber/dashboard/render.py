@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from bewerber.shared.paths import Paths
 from bewerber.shared.state_schema import BewerberState
 
 
@@ -16,4 +17,5 @@ def render_dashboard(state: BewerberState) -> str:
     )
     tpl = env.get_template("dashboard.html.j2")
     data_json = json.dumps(state.model_dump(mode="json"), ensure_ascii=False)
-    return tpl.render(state=state, data_json=data_json)
+    workspace_path = str(Paths().workspace)
+    return tpl.render(state=state, data_json=data_json, workspace_path=workspace_path)

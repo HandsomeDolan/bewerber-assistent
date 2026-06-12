@@ -38,6 +38,24 @@ tr.expanded + tr.detail { display: table-row; }
 .detail h4 { margin: 4px 0; }
 .detail .links a { display: inline-block; margin-right: 12px; }
 .muted { color: #999; }
+.action-btn {
+  display: inline-block; margin: 4px 8px 4px 0;
+  padding: 6px 12px; border: 1px solid #1a3a5c;
+  background: #1a3a5c; color: white; border-radius: 4px;
+  font-size: 13px; cursor: pointer; font-weight: 600;
+}
+.action-btn:hover { background: #2a4a6c; }
+.action-btn:disabled { background: #888; border-color: #888; cursor: default; }
+.cmd-box {
+  margin: 6px 0; padding: 8px 10px;
+  background: #1e1e1e; color: #d8d8d8;
+  border-radius: 4px;
+  font-family: "SF Mono", "Monaco", monospace;
+  font-size: 11.5px; white-space: pre-wrap; word-break: break-all;
+  display: none;
+}
+.cmd-box.visible { display: block; }
+.copy-toast { display: inline-block; color: #1a7a1a; font-size: 12px; font-weight: 600; margin-left: 8px; }
 </style>
 </head>
 <body>
@@ -182,8 +200,14 @@ function detailHtml(r) {
   const missingSk = (scoring.missing_skills || []).map(s => `<code>${escapeHtml(s)}</code>`).join(", ");
   const flags = (scoring.red_flags || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
   const desc = r.raw.description ? escapeHtml(r.raw.description).slice(0, 800) + (r.raw.description.length > 800 ? "…" : "") : "<em>keine Beschreibung</em>";
+  const tailorBtn = r.tailored_dir
+    ? `<span class="muted">✔ Bereits getailored — <a href="file://${r.tailored_dir}">Ordner öffnen</a></span>`
+    : `<button class="action-btn" onclick="copyTailorCmd('${r.jid}', event)">📋 Tailor-Befehl kopieren</button>
+       <span class="copy-toast" id="toast-${r.jid}" style="display:none;">✔ kopiert! Im Terminal pasten.</span>
+       <pre class="cmd-box" id="cmd-${r.jid}"></pre>`;
   return `
     <div class="links">${linkPost} ${linkCv} ${linkAns} ${linkApp}</div>
+    <div style="margin-top:6px;">${tailorBtn}</div>
     <h4>Scoring</h4>
     <div><b>Fit:</b> ${scoring.fit_score || "—"} — ${escapeHtml(scoring.begruendung || "")}</div>
     <div><b>Matched Skills:</b> ${matchedSk || '<span class="muted">—</span>'}</div>
@@ -200,6 +224,41 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+
+const WORKSPACE = {{ workspace_path | tojson }};
+function buildTailorCommand(jid) {
+  const r = STATE.jobs[jid];
+  if (!r) return "";
+  const shellQuote = s => "'" + String(s || "").replace(/'/g, "'\\''") + "'";
+  const parts = [
+    `cd ${shellQuote(WORKSPACE + "/bewerber")}`,
+    "source .venv/bin/activate",
+    `PYTHONPATH=src python3 -m bewerber.cli tailor`,
+    `  --url ${shellQuote(r.raw.url)}`,
+    `  --firma ${shellQuote(r.raw.company)}`,
+    `  --rolle ${shellQuote(r.raw.title)}`,
+  ];
+  return parts.slice(0, 3).join(" && ") + " \\\n " + parts.slice(3).join(" \\\n ");
+}
+
+function copyTailorCmd(jid, evt) {
+  if (evt) evt.stopPropagation();  // don't toggle the detail row
+  const cmd = buildTailorCommand(jid);
+  const box = document.getElementById("cmd-" + jid);
+  const toast = document.getElementById("toast-" + jid);
+  if (box) {
+    box.textContent = cmd;
+    box.classList.add("visible");
+  }
+  navigator.clipboard.writeText(cmd).then(() => {
+    if (toast) {
+      toast.style.display = "inline-block";
+      setTimeout(() => { toast.style.display = "none"; }, 4000);
+    }
+  }).catch(err => {
+    console.warn("Clipboard failed, command shown below:", err);
+  });
+}
 
 document.querySelectorAll("th[data-sort]").forEach(th => {
   th.addEventListener("click", () => {
