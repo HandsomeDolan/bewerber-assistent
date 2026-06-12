@@ -1,0 +1,34 @@
+{
+  "stellenangebote": [
+    {
+      "refnr": "10001-1003091744-S",
+      "beruf": "KI-Manager/in",
+      "titel": "Business AI Consultant (m/w/d) - KI Enablement & Kundenberatung",
+      "arbeitgeber": "2b AHEAD ThinkTank GmbH",
+      "arbeitsort": {
+        "plz": "04179",
+        "ort": "Leipzig",
+        "region": "Sachsen",
+        "land": "Deutschland"
+      },
+      "aktuelleVeroeffentlichungsdatum": "2026-05-19",
+      "eintrittsdatum": "ab sofort",
+      "externeUrl": null
+    },
+    {
+      "refnr": "10001-9999999999-S",
+      "beruf": "Senior KI-Berater/in",
+      "titel": "Senior KI Consultant (m/w/d)",
+      "arbeitgeber": "Acme GmbH",
+      "arbeitsort": {
+        "plz": "10115",
+        "ort": "Berlin",
+        "region": "Berlin",
+        "land": "Deutschland"
+      },
+      "aktuelleVeroeffentlichungsdatum": "2026-06-10"
+    }
+  ],
+  "maxErgebnisse": 2,
+  "stellenangeboteCount": 2
+}
