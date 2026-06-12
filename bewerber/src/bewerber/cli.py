@@ -17,6 +17,13 @@ from bewerber.shared.paths import Paths
 from bewerber.tailoring.orchestrator import TailorInput, tailor, rebuild_pdfs
 from bewerber.tailoring.posting import read_posting_from_file
 from bewerber.tailoring.snapshot import snapshot_url
+from bewerber.discovery.searches import load_searches
+from bewerber.discovery.orchestrator import discover
+# Import scraper modules so they self-register in scraper_registry
+from bewerber.discovery.scrapers import arbeitsagentur as _arbeitsagentur  # noqa: F401
+from bewerber.discovery.scrapers import linkedin as _linkedin  # noqa: F401
+from bewerber.discovery.scrapers import indeed as _indeed  # noqa: F401
+from bewerber.shared.state import load_state, save_state
 
 load_dotenv()
 
@@ -173,6 +180,41 @@ def cmd_tailor(url, posting_file, firma, rolle, kontakt_name, datum, rebuild_dir
     click.echo(f"\n✔ Bewerbungsordner: {result.output_dir}")
     click.echo(f"  • Lebenslauf:    {result.lebenslauf_pdf.name}")
     click.echo(f"  • Anschreiben:   {result.anschreiben_pdf.name}")
+
+
+@main.command("discover")
+def cmd_discover() -> None:
+    """Sucht Jobs auf den konfigurierten Boards, scort sie gegen master_profile, schreibt state.json."""
+    paths = Paths()
+    if not paths.master_profile.is_file():
+        click.echo(f"Fehler: {paths.master_profile} fehlt. Erst `bewerber profile init` ausführen.")
+        raise click.exceptions.Exit(1)
+    searches_path = paths.bewerber_dir / "searches.yaml"
+    if not searches_path.is_file():
+        click.echo(
+            f"Fehler: {searches_path} fehlt. "
+            f"Kopiere `bewerber/searches.yaml.example` zu `bewerber/searches.yaml` und passe sie an."
+        )
+        raise click.exceptions.Exit(1)
+
+    config = load_searches(searches_path)
+    if not config.searches:
+        click.echo("Keine Sucheinträge in searches.yaml definiert. Nichts zu tun.")
+        return
+
+    click.echo(f"Lade {len(config.searches)} Sucheinträge …")
+    master_yaml_text = paths.master_profile.read_text(encoding="utf-8")
+    state = load_state(paths.state_json)
+    llm = LLMClient()
+    discover(config, state=state, master_yaml_text=master_yaml_text, llm=llm)
+    save_state(paths.state_json, state)
+
+    fit_jobs = [j for j in state.jobs.values() if j.scoring and j.scoring.fit_score >= config.defaults.min_fit_score]
+    click.echo(f"✔ {len(state.jobs)} Jobs insgesamt, {len(fit_jobs)} davon mit Fit-Score >= {config.defaults.min_fit_score}")
+    if state.scrape_errors:
+        click.echo("Scrape-Fehler:")
+        for board, err in state.scrape_errors.items():
+            click.echo(f"  · {board}: {err.last_error}")
 
 
 if __name__ == "__main__":
