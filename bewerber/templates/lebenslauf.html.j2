@@ -119,7 +119,7 @@ ul.bullets li { margin-bottom: 2pt; }
 <div class="werdegang-entry">
   <div class="werdegang-head">
     <div class="werdegang-title">{{ job.position }}{% if job.firma %}, <span class="firma">{{ job.firma }}</span>{% endif %}</div>
-    <div class="werdegang-date">{{ fmt_ym(job.von) }} — {% if job.bis %}{{ fmt_ym(job.bis) }}{% else %}heute{% endif %}</div>
+    <div class="werdegang-date">{{ fmt_ym(job.von) }} - {% if job.bis %}{{ fmt_ym(job.bis) }}{% else %}heute{% endif %}</div>
   </div>
   {% if job.werdegang_bullets %}
   <ul class="bullets">
@@ -129,15 +129,15 @@ ul.bullets li { margin-bottom: 2pt; }
 </div>
 {% endfor %}
 
-{# Detaillierte Projekterfahrung — nur Stellen mit projekterfahrung-Blöcken #}
+{# Detaillierte Projekterfahrung - nur Stellen mit projekterfahrung-Blöcken #}
 {% set has_detail = customized.berufserfahrung | selectattr("projekterfahrung") | list | length > 0 %}
 {% if has_detail %}
 <div class="section-divider"><div class="section-title">DETAILLIERTE PROJEKTERFAHRUNG</div></div>
 {% for job in customized.berufserfahrung %}
 {% if job.projekterfahrung %}
 <div class="projektstelle">
-  <div class="projektstelle-period">[{{ fmt_year(job.von) }}{% if job.bis %} – {{ fmt_year(job.bis) }}{% else %} – heute{% endif %}]</div>
-  <div class="projektstelle-header">{{ job.position }}{% if job.firma %} — {{ job.firma }}{% endif %}{% if job.standort %} ({{ job.standort }}){% endif %}</div>
+  <div class="projektstelle-period">[{{ fmt_year(job.von) }}{% if job.bis %} - {{ fmt_year(job.bis) }}{% else %} - heute{% endif %}]</div>
+  <div class="projektstelle-header">{{ job.position }}{% if job.firma %} - {{ job.firma }}{% endif %}{% if job.standort %} ({{ job.standort }}){% endif %}</div>
   {% for block in job.projekterfahrung %}
   <div class="projektblock">
     <div class="projektblock-title">{{ block.titel }}</div>

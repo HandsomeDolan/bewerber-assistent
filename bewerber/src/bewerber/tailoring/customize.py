@@ -11,10 +11,11 @@ für eine spezifische Stellenausschreibung an, im Stil eines klassischen, monoch
 
 KRITISCHE REGELN:
 1. Erfinde KEINE Inhalte. Du darfst NUR aus den gegebenen Master-Profil-Daten zitieren oder umformulieren.
-2. Wenn ein gefordertes Skill nicht im Master vorhanden ist, lass es weg — füge es nicht hinzu.
-3. Du darfst Formulierungen anpassen, um Sprache auf die Ausschreibung auszurichten — Inhalt muss aber im Master stehen.
+2. Wenn ein gefordertes Skill nicht im Master vorhanden ist, lass ihn weg - füge ihn nicht hinzu.
+3. Du darfst Formulierungen anpassen, um Sprache auf die Ausschreibung auszurichten - Inhalt muss aber im Master stehen.
 4. Antworte ausschließlich auf Deutsch.
 5. Datumsangaben bleiben unverändert (YYYY-MM Format).
+6. Verwende AUSSCHLIESSLICH klassische Bindestriche (-). KEINE em-dashes (—), KEINE en-dashes (–).
 
 LEBENSLAUF-STRUKTUR (zwei getrennte Sektionen):
 
