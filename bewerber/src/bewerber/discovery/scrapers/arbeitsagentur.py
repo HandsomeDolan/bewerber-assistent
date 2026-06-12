@@ -46,7 +46,15 @@ class ArbeitsagenturAdapter:
     name = "arbeitsagentur"
 
     def __init__(self, api_key: Optional[str] = None) -> None:
-        self.api_key = api_key or os.environ.get("ARBEITSAGENTUR_API_KEY", "")
+        # Explicit override only; otherwise read from env lazily in search()
+        # so that load_dotenv() in cli.py runs first.
+        self._explicit_api_key = api_key
+
+    @property
+    def api_key(self) -> str:
+        if self._explicit_api_key:
+            return self._explicit_api_key
+        return os.environ.get("ARBEITSAGENTUR_API_KEY", "")
 
     def search(
         self,
@@ -54,7 +62,8 @@ class ArbeitsagenturAdapter:
         locations: list[str],
         max_age_days: int,
     ) -> list[RawJob]:
-        if not self.api_key:
+        key = self.api_key
+        if not key:
             raise RuntimeError(
                 "ARBEITSAGENTUR_API_KEY not set. "
                 "Register at https://jobsuche.api.bund.dev and put the key in .env."
@@ -67,7 +76,7 @@ class ArbeitsagenturAdapter:
             params = {"was": was, "wo": loc, "size": 50, "angebotsart": 1}
             resp = requests.get(
                 url=API_BASE,
-                headers={"X-API-Key": self.api_key, "User-Agent": "bewerber/0.1"},
+                headers={"X-API-Key": key, "User-Agent": "bewerber/0.1"},
                 params=params,
                 timeout=20,
             )
