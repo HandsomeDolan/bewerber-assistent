@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Bewerber-Dashboard</title>
+<style>
+* { box-sizing: border-box; }
+body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.4; color: #1a1a1a; margin: 0; padding: 16px 24px; background: #fafafa; }
+h1 { font-size: 24px; margin: 0 0 8px 0; }
+.meta { color: #555; font-size: 12px; margin-bottom: 16px; }
+.controls { display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
+.controls label { font-size: 12px; color: #555; }
+.controls input, .controls select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+.controls input[type=search] { width: 280px; }
+table { width: 100%; border-collapse: collapse; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
+th { background: #f0f0f0; font-weight: 600; cursor: pointer; user-select: none; }
+th:hover { background: #e8e8e8; }
+tr:hover { background: #f8f8f8; }
+.score { font-weight: 700; text-align: center; min-width: 36px; }
+.score-9, .score-10 { color: #1a7a1a; }
+.score-7, .score-8 { color: #4a6a1a; }
+.score-5, .score-6 { color: #aa7a1a; }
+.score-1, .score-2, .score-3, .score-4 { color: #aa3a1a; }
+.status { padding: 2px 8px; border-radius: 3px; font-size: 12px; white-space: nowrap; }
+.status-discovered { background: #e8e8e8; }
+.status-shortlisted { background: #d8e8f8; }
+.status-tailored { background: #f8e8d8; }
+.status-applied { background: #d8f0d8; }
+.status-interview { background: #f0d8f8; }
+.status-offer { background: #b0f0b0; font-weight: 700; }
+.status-rejected { background: #f8d8d8; color: #555; }
+.status-withdrawn { background: #e0e0e0; color: #777; }
+.errors { background: #fff4e0; border: 1px solid #f0c890; padding: 8px 12px; margin: 12px 0; border-radius: 4px; font-size: 12px; }
+.errors b { color: #aa5a00; }
+.detail { display: none; padding: 12px; background: #fafafa; border-left: 3px solid #888; margin: 4px 0; }
+tr.expanded + tr.detail { display: table-row; }
+.detail h4 { margin: 4px 0; }
+.detail .links a { display: inline-block; margin-right: 12px; }
+.muted { color: #999; }
+</style>
+</head>
+<body>
+<h1>Bewerber-Dashboard</h1>
+<div class="meta">
+  Letzter Discovery-Run: <b>{{ state.last_discovery_run or "noch nie" }}</b> ·
+  {{ state.jobs | length }} Jobs insgesamt
+</div>
+
+{% if state.scrape_errors %}
+<div class="errors">
+  <b>Scrape-Fehler:</b>
+  {% for board, err in state.scrape_errors.items() %}
+    {{ board }} ({{ err.at }}): {{ err.last_error }};
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="controls">
+  <label>Suche: <input type="search" id="q" placeholder="Firma, Titel, Beschreibung …"></label>
+  <label>Status: <select id="filter-status">
+    <option value="">alle</option>
+    <option value="discovered">discovered</option>
+    <option value="shortlisted">shortlisted</option>
+    <option value="tailored">tailored</option>
+    <option value="applied">applied</option>
+    <option value="interview">interview</option>
+    <option value="offer">offer</option>
+    <option value="rejected">rejected</option>
+    <option value="withdrawn">withdrawn</option>
+  </select></label>
+  <label>Min Score: <select id="filter-score">
+    <option value="0">alle</option>
+    <option value="5">>=5</option>
+    <option value="6" selected>>=6</option>
+    <option value="7">>=7</option>
+    <option value="8">>=8</option>
+  </select></label>
+  <label>Board: <select id="filter-board">
+    <option value="">alle</option>
+    <option value="arbeitsagentur">arbeitsagentur</option>
+    <option value="linkedin">linkedin</option>
+    <option value="indeed">indeed</option>
+    <option value="manual">manual (tailored)</option>
+  </select></label>
+</div>
+
+<table id="jobs-table">
+  <thead><tr>
+    <th data-sort="score">Score</th>
+    <th data-sort="status">Status</th>
+    <th data-sort="company">Firma</th>
+    <th data-sort="title">Titel</th>
+    <th data-sort="location">Ort</th>
+    <th data-sort="board">Board</th>
+    <th data-sort="posted_date">Veröff.</th>
+  </tr></thead>
+  <tbody id="jobs-tbody"></tbody>
+</table>
+
+<script id="data" type="application/json">{{ data_json }}</script>
+<script>
+const STATE = JSON.parse(document.getElementById("data").textContent);
+const tbody = document.getElementById("jobs-tbody");
+const q = document.getElementById("q");
+const fStatus = document.getElementById("filter-status");
+const fScore = document.getElementById("filter-score");
+const fBoard = document.getElementById("filter-board");
+let currentSort = { key: "score", dir: -1 };
+
+function applyFilters() {
+  const query = (q.value || "").toLowerCase();
+  const minScore = parseInt(fScore.value || "0", 10);
+  const statusFilter = fStatus.value;
+  const boardFilter = fBoard.value;
+
+  let rows = Object.entries(STATE.jobs).map(([jid, job]) => ({ jid, ...job }));
+  rows = rows.filter(r => {
+    if (statusFilter && r.status !== statusFilter) return false;
+    if (boardFilter && r.raw.board !== boardFilter) return false;
+    const score = (r.scoring && r.scoring.fit_score) || 0;
+    if (score < minScore) return false;
+    if (query) {
+      const hay = [r.raw.title, r.raw.company, r.raw.location, r.raw.description || "", r.notes || ""].join(" ").toLowerCase();
+      if (!hay.includes(query)) return false;
+    }
+    return true;
+  });
+  rows.sort((a, b) => {
+    const key = currentSort.key;
+    let av, bv;
+    if (key === "score") { av = (a.scoring && a.scoring.fit_score) || 0; bv = (b.scoring && b.scoring.fit_score) || 0; }
+    else if (key === "posted_date") { av = a.raw.posted_date || ""; bv = b.raw.posted_date || ""; }
+    else if (key === "board") { av = a.raw.board; bv = b.raw.board; }
+    else if (key === "title" || key === "company" || key === "location") { av = a.raw[key] || ""; bv = b.raw[key] || ""; }
+    else { av = a[key] || ""; bv = b[key] || ""; }
+    return (av < bv ? -1 : av > bv ? 1 : 0) * currentSort.dir;
+  });
+  renderRows(rows);
+}
+
+function renderRows(rows) {
+  tbody.innerHTML = "";
+  for (const r of rows) {
+    const score = (r.scoring && r.scoring.fit_score) || 0;
+    const tr = document.createElement("tr");
+    tr.dataset.jid = r.jid;
+    tr.innerHTML = `
+      <td class="score score-${score}">${score || "—"}</td>
+      <td><span class="status status-${r.status}">${r.status}</span></td>
+      <td>${escapeHtml(r.raw.company)}</td>
+      <td>${escapeHtml(r.raw.title)}</td>
+      <td>${escapeHtml(r.raw.location)}</td>
+      <td>${escapeHtml(r.raw.board)}</td>
+      <td>${r.raw.posted_date || "—"}</td>
+    `;
+    tr.addEventListener("click", () => toggleDetail(tr, r));
+    tbody.appendChild(tr);
+
+    const detail = document.createElement("tr");
+    detail.className = "detail";
+    detail.innerHTML = `<td colspan="7">${detailHtml(r)}</td>`;
+    detail.style.display = "none";
+    tbody.appendChild(detail);
+  }
+}
+
+function toggleDetail(tr, r) {
+  const next = tr.nextElementSibling;
+  if (!next || !next.classList.contains("detail")) return;
+  const showing = next.style.display === "table-row";
+  next.style.display = showing ? "none" : "table-row";
+}
+
+function detailHtml(r) {
+  const scoring = r.scoring || {};
+  const linkCv = r.tailored_dir ? `<a href="file://${r.tailored_dir}/lebenslauf.pdf">Lebenslauf PDF</a>` : "";
+  const linkAns = r.tailored_dir ? `<a href="file://${r.tailored_dir}/anschreiben.pdf">Anschreiben PDF</a>` : "";
+  const linkPost = r.raw.url ? `<a href="${escapeAttr(r.raw.url)}" target="_blank">Original-Posting</a>` : "";
+  const linkApp = r.application_link ? `<a href="${escapeAttr(r.application_link)}" target="_blank">Eingereichte Bewerbung</a>` : "";
+  const matchedSk = (scoring.matched_skills || []).map(s => `<code>${escapeHtml(s)}</code>`).join(", ");
+  const missingSk = (scoring.missing_skills || []).map(s => `<code>${escapeHtml(s)}</code>`).join(", ");
+  const flags = (scoring.red_flags || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  const desc = r.raw.description ? escapeHtml(r.raw.description).slice(0, 800) + (r.raw.description.length > 800 ? "…" : "") : "<em>keine Beschreibung</em>";
+  return `
+    <div class="links">${linkPost} ${linkCv} ${linkAns} ${linkApp}</div>
+    <h4>Scoring</h4>
+    <div><b>Fit:</b> ${scoring.fit_score || "—"} — ${escapeHtml(scoring.begruendung || "")}</div>
+    <div><b>Matched Skills:</b> ${matchedSk || '<span class="muted">—</span>'}</div>
+    <div><b>Missing Skills:</b> ${missingSk || '<span class="muted">—</span>'}</div>
+    ${flags ? `<div><b>Red Flags:</b><ul>${flags}</ul></div>` : ""}
+    ${r.notes ? `<h4>Notizen</h4><pre style="white-space: pre-wrap;">${escapeHtml(r.notes)}</pre>` : ""}
+    <h4>Beschreibung</h4>
+    <div style="white-space: pre-wrap; font-size: 13px;">${desc}</div>
+  `;
+}
+
+function escapeHtml(s) {
+  s = String(s || "");
+  return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+
+document.querySelectorAll("th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const k = th.dataset.sort;
+    currentSort = { key: k, dir: currentSort.key === k ? -currentSort.dir : (k === "score" ? -1 : 1) };
+    applyFilters();
+  });
+});
+[q, fStatus, fScore, fBoard].forEach(el => el.addEventListener("input", applyFilters));
+applyFilters();
+</script>
+</body>
+</html>
