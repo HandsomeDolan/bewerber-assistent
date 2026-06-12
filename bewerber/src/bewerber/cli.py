@@ -1,4 +1,5 @@
 import tempfile
+import webbrowser
 from datetime import date
 from datetime import datetime as _datetime
 from pathlib import Path
@@ -7,6 +8,7 @@ import click
 import yaml
 from dotenv import load_dotenv
 
+from bewerber.dashboard.render import render_dashboard
 from bewerber.profile.extractor import (
     extract_profile_from_documents,
     save_anschreiben_examples,
@@ -269,6 +271,27 @@ def cmd_note(job_id: str, text: str) -> None:
     job.notes = f"{job.notes}\n{new_entry}".strip() if job.notes else new_entry
     save_state(paths.state_json, state)
     click.echo(f"✔ Notiz hinzugefügt zu {job_id}")
+
+
+@main.command("regen")
+def cmd_regen() -> None:
+    """Rendert dashboard.html aus aktuellem state.json neu."""
+    paths = Paths()
+    state = load_state(paths.state_json)
+    html = render_dashboard(state)
+    paths.dashboard_html.write_text(html, encoding="utf-8")
+    click.echo(f"✔ Dashboard geschrieben: {paths.dashboard_html} ({len(state.jobs)} Jobs)")
+
+
+@main.command("serve")
+def cmd_serve() -> None:
+    """Rendert dashboard.html und öffnet sie im Default-Browser."""
+    paths = Paths()
+    state = load_state(paths.state_json)
+    html = render_dashboard(state)
+    paths.dashboard_html.write_text(html, encoding="utf-8")
+    webbrowser.open(f"file://{paths.dashboard_html}")
+    click.echo(f"✔ {paths.dashboard_html} geöffnet")
 
 
 if __name__ == "__main__":

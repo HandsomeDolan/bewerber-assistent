@@ -128,3 +128,33 @@ def test_note_appends_to_notes_field(tmp_path, monkeypatch):
     notes = state.jobs["arbeitsagentur-x1"].notes
     assert "Telefoniert" in notes
     assert "Interview-Einladung" in notes
+
+
+def test_regen_writes_dashboard_html(tmp_path, monkeypatch):
+    workspace = tmp_path / "ws"
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(workspace))
+    _seed_state(workspace)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["regen"])
+    assert result.exit_code == 0, result.output
+
+    html = (workspace / "bewerber" / "dashboard.html").read_text(encoding="utf-8")
+    assert "Bewerber-Dashboard" in html
+    assert "arbeitsagentur-x1" in html
+
+
+def test_serve_calls_regen_then_open(tmp_path, monkeypatch, mocker):
+    workspace = tmp_path / "ws"
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(workspace))
+    _seed_state(workspace)
+
+    fake_open = mocker.patch("bewerber.cli.webbrowser.open")
+    runner = CliRunner()
+    result = runner.invoke(main, ["serve"])
+    assert result.exit_code == 0, result.output
+    assert (workspace / "bewerber" / "dashboard.html").is_file()
+    fake_open.assert_called_once()
+    url = fake_open.call_args.args[0]
+    assert url.startswith("file://")
+    assert "dashboard.html" in url
