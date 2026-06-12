@@ -1,0 +1,14 @@
+KI Produktmanager (m/w/d)
+BMW Group, München
+
+Wir suchen einen erfahrenen KI Produktmanager zur Leitung unserer KI-Initiativen
+im Bereich autonomes Fahren. Sie verantworten die Roadmap, arbeiten mit
+Data-Science-Teams und stakeholdern aus Engineering, Produkt und Marketing.
+
+Anforderungen:
+- 5+ Jahre Erfahrung in Produktmanagement
+- Erfahrung mit KI/ML-Produkten
+- Sehr gute Deutsch- und Englischkenntnisse
+- Tools: Jira, Confluence, Python (Grundlagen)
+
+Kontakt: Frau Anna Müller, anna.mueller@bmw.de
