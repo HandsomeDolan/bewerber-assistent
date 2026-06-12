@@ -1,0 +1,27 @@
+# Beispiel-Konfiguration. Kopieren nach `searches.yaml` und anpassen.
+defaults:
+  locations: [Leipzig, Berlin, Remote]
+  date_posted_max_days: 14
+  min_fit_score: 6   # nur informativ - im Dashboard standardmäßig ausgeblendet
+
+searches:
+  - name: "KI Manager"
+    keywords:
+      - "KI Manager"
+      - "AI Product Manager"
+      - "KI Produktmanager"
+    boards: [arbeitsagentur, linkedin, indeed]
+
+  - name: "Lead Projektmanager"
+    keywords:
+      - "Lead Projektmanager"
+      - "Senior Projektleiter"
+      - "Projektleitung Digitalisierung"
+    boards: [arbeitsagentur, linkedin]
+
+  - name: "Generative AI / Automation"
+    keywords:
+      - "Generative AI Engineer"
+      - "n8n Automation"
+      - "LLM Engineer"
+    boards: [linkedin, indeed]

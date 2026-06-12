@@ -17,6 +17,7 @@ htmlcov/
 
 # Personal data (user-specific, generated)
 bewerber/master_profile.yaml
+bewerber/searches.yaml
 bewerber/state.json
 bewerber/state.json.bak
 bewerber/anschreiben_examples/
