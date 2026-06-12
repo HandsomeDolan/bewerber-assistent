@@ -40,4 +40,4 @@ def test_snapshot_url_writes_html_and_pdf(tmp_path, mocker):
     assert (out_dir / "posting.pdf").read_bytes().startswith(b"%PDF")
     assert "KI Manager" in text
     assert "Beschreibung" in text
-    fake_page.goto.assert_called_once_with("https://example.com/job/123", wait_until="domcontentloaded", timeout=30000)
+    fake_page.goto.assert_called_once_with("https://example.com/job/123", wait_until="networkidle", timeout=30000)

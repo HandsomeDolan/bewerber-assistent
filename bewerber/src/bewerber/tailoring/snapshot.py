@@ -13,7 +13,7 @@ def snapshot_url(url: str, out_dir: Path) -> str:
         browser = pw.chromium.launch(headless=True)
         try:
             page = browser.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            page.goto(url, wait_until="networkidle", timeout=30000)
             html = page.content()
             pdf_bytes = page.pdf(format="A4", margin={"top": "1cm", "right": "1cm", "bottom": "1cm", "left": "1cm"})
         finally:
