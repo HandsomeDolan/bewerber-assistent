@@ -1,3 +1,4 @@
+import hashlib
 import json
 import shutil
 from dataclasses import dataclass
@@ -9,6 +10,10 @@ from bewerber.shared.llm import LLMClient
 from bewerber.shared.paths import Paths
 from bewerber.shared.profile_schema import MasterProfile
 from bewerber.shared.slug import bewerbungsordner_name
+from bewerber.shared.state import load_state, save_state
+from bewerber.shared.state_schema import (
+    BewerberState, JobStatus, RawJob, StatusHistoryEntry, TrackedJob,
+)
 from bewerber.tailoring.anschreiben import (
     AnschreibenContent,
     generate_anschreiben,
@@ -107,6 +112,14 @@ def tailor(inp: TailorInput) -> TailorResult:
         encoding="utf-8",
     )
 
+    _update_state_for_tailored(
+        paths=paths,
+        firma=inp.firma,
+        rolle=inp.rolle,
+        source_url=inp.source_url,
+        tailored_dir=out_dir,
+    )
+
     return TailorResult(
         output_dir=out_dir,
         lebenslauf_pdf=out_dir / "lebenslauf.pdf",
@@ -126,6 +139,66 @@ def _to_german_date(iso: str) -> str:
     """`2026-06-12` → `12.06.2026`"""
     y, m, d = iso.split("-")
     return f"{d}.{m}.{y}"
+
+
+def _update_state_for_tailored(
+    *,
+    paths: Paths,
+    firma: str,
+    rolle: str,
+    source_url: Optional[str],
+    tailored_dir: Path,
+) -> None:
+    """Create or update a state.json entry for the just-tailored Bewerbung.
+
+    Match strategy: if any existing TrackedJob has the same `raw.url` as source_url,
+    update that job. Otherwise create a new manually-tracked job with board='manual'.
+    """
+    state = load_state(paths.state_json)
+
+    matched_id: Optional[str] = None
+    if source_url:
+        for jid, job in state.jobs.items():
+            if job.raw.url == source_url:
+                matched_id = jid
+                break
+
+    now_iso = _now_iso_for_state()
+
+    if matched_id is not None:
+        existing = state.jobs[matched_id]
+        existing.status = JobStatus.TAILORED
+        existing.tailored_dir = str(tailored_dir)
+        existing.status_history.append(StatusHistoryEntry(status=JobStatus.TAILORED, at=now_iso))
+    else:
+        external_id = (
+            hashlib.sha1(source_url.encode("utf-8")).hexdigest()[:16]
+            if source_url
+            else hashlib.sha1(f"{firma}|{rolle}".encode("utf-8")).hexdigest()[:16]
+        )
+        new_id = f"manual-{external_id}"
+        raw = RawJob(
+            board="manual",
+            external_id=external_id,
+            url=source_url or "",
+            title=rolle,
+            company=firma,
+            location="",
+        )
+        state.jobs[new_id] = TrackedJob(
+            raw=raw,
+            status=JobStatus.TAILORED,
+            status_history=[StatusHistoryEntry(status=JobStatus.TAILORED, at=now_iso)],
+            first_seen=now_iso,
+            tailored_dir=str(tailored_dir),
+        )
+
+    save_state(paths.state_json, state)
+
+
+def _now_iso_for_state() -> str:
+    from datetime import datetime
+    return datetime.now().isoformat(timespec="seconds")
 
 
 from markdown_it import MarkdownIt

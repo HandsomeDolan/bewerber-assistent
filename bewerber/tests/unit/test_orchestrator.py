@@ -150,3 +150,109 @@ def test_rebuild_pdfs_from_edited_html_and_md(tmp_path):
     with pdfplumber.open(io.BytesIO(pdf_a)) as p:
         at = "\n".join((page.extract_text() or "") for page in p.pages)
     assert "Manuell editiert" in at
+
+
+def test_tailor_writes_state_entry(tmp_path, monkeypatch, mocker):
+    """After tailor() succeeds, state.json must contain a TrackedJob with status=TAILORED."""
+    workspace = tmp_path / "ws"
+    bewerber_dir = workspace / "bewerber"
+    bewerber_dir.mkdir(parents=True)
+    bu = tmp_path / "Bewerbungsunterlagen"
+    (bu / "Bewerbungen").mkdir(parents=True)
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(workspace))
+    monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path))
+
+    _write_master(bewerber_dir).rename(bewerber_dir / "master_profile.yaml")
+
+    mocker.patch("bewerber.tailoring.orchestrator.customize_resume", return_value=CustomizedResume(
+        berufsprofil_zugespitzt="x", berufserfahrung=[], skills_kategorisiert=SkillKategorien(),
+    ))
+    mocker.patch("bewerber.tailoring.orchestrator.generate_anschreiben", return_value=AnschreibenContent(
+        anrede="x", einleitung="x", hauptteil="x", schluss="x", gruss="x",
+    ))
+
+    result = tailor(TailorInput(
+        posting_text="job",
+        firma="2b AHEAD",
+        rolle="Business AI Consultant",
+        datum="2026-06-12",
+        kontakt_name="Frau Moser",
+        source_url="https://example.com/job/abc",
+        snapshot_dir=None,
+        llm=mocker.Mock(),
+    ))
+
+    from bewerber.shared.state import load_state
+    from bewerber.shared.state_schema import JobStatus
+
+    state = load_state(workspace / "bewerber" / "state.json")
+    # job_id should be derived from source URL when there is no scraper external_id
+    matching = [j for j in state.jobs.values() if j.raw.company == "2b AHEAD"]
+    assert len(matching) == 1
+    job = matching[0]
+    assert job.status == JobStatus.TAILORED
+    assert job.raw.title.startswith("Business AI Consultant")
+    assert job.tailored_dir == str(result.output_dir)
+    assert job.raw.url == "https://example.com/job/abc"
+
+
+def test_tailor_updates_existing_state_entry_if_url_matches(tmp_path, monkeypatch, mocker):
+    """When a job already exists in state matching source_url, tailor updates it instead of creating duplicate."""
+    workspace = tmp_path / "ws"
+    bewerber_dir = workspace / "bewerber"
+    bewerber_dir.mkdir(parents=True)
+    bu = tmp_path / "Bewerbungsunterlagen"
+    (bu / "Bewerbungen").mkdir(parents=True)
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(workspace))
+    monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path))
+
+    _write_master(bewerber_dir).rename(bewerber_dir / "master_profile.yaml")
+
+    # Pre-seed state.json with a discovered job from Arbeitsagentur with the same URL
+    from bewerber.shared.state import save_state
+    from bewerber.shared.state_schema import (
+        BewerberState, RawJob, TrackedJob, JobStatus, Scoring,
+    )
+    pre = TrackedJob(
+        raw=RawJob(
+            board="arbeitsagentur", external_id="10001-XYZ",
+            url="https://example.com/job/abc",
+            title="Old title", company="Old company", location="Leipzig",
+        ),
+        scoring=Scoring(
+            fit_score=8, begruendung="ok", matched_skills=["n8n"],
+            missing_skills=[], red_flags=[], verbessern_in_anschreiben=[],
+        ),
+        status=JobStatus.DISCOVERED,
+    )
+    pre_state = BewerberState(jobs={"arbeitsagentur-10001-XYZ": pre})
+    save_state(workspace / "bewerber" / "state.json", pre_state)
+
+    mocker.patch("bewerber.tailoring.orchestrator.customize_resume", return_value=CustomizedResume(
+        berufsprofil_zugespitzt="x", berufserfahrung=[], skills_kategorisiert=SkillKategorien(),
+    ))
+    mocker.patch("bewerber.tailoring.orchestrator.generate_anschreiben", return_value=AnschreibenContent(
+        anrede="x", einleitung="x", hauptteil="x", schluss="x", gruss="x",
+    ))
+
+    tailor(TailorInput(
+        posting_text="job",
+        firma="2b AHEAD",
+        rolle="Business AI Consultant",
+        datum="2026-06-12",
+        kontakt_name=None,
+        source_url="https://example.com/job/abc",
+        snapshot_dir=None,
+        llm=mocker.Mock(),
+    ))
+
+    from bewerber.shared.state import load_state
+    state = load_state(workspace / "bewerber" / "state.json")
+    # The existing arbeitsagentur job should be the only entry, now with status=TAILORED
+    assert len(state.jobs) == 1
+    job = list(state.jobs.values())[0]
+    assert job.status == JobStatus.TAILORED
+    assert job.tailored_dir
+    # Original scoring preserved
+    assert job.scoring.fit_score == 8
+    assert "n8n" in job.scoring.matched_skills
