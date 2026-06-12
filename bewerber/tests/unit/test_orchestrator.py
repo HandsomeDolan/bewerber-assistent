@@ -2,7 +2,9 @@ import json
 import yaml
 from pathlib import Path
 from bewerber.tailoring.orchestrator import tailor, TailorInput, TailorResult
-from bewerber.tailoring.customize import CustomizedResume, CustomBerufserfahrung
+from bewerber.tailoring.customize import (
+    CustomizedResume, CustomBerufserfahrung, ProjekterfahrungBlock, SkillKategorien,
+)
 from bewerber.tailoring.anschreiben import AnschreibenContent
 from bewerber.shared.profile_schema import (
     MasterProfile, Person, Berufserfahrung,
@@ -38,10 +40,12 @@ def test_tailor_full_pipeline_with_text_input(tmp_path, mocker, monkeypatch):
     # Mock LLM passes
     mocker.patch("bewerber.tailoring.orchestrator.customize_resume", return_value=CustomizedResume(
         berufsprofil_zugespitzt="Tailored profil.",
-        berufserfahrung=[CustomBerufserfahrung(position="PM", firma="Acme", von="2020-01", bis=None,
-                                                aufgaben=["a"], erfolge=[], skills=[])],
-        projekte_hervorheben=[],
-        skills_reihenfolge=["Python"],
+        berufserfahrung=[CustomBerufserfahrung(
+            position="PM", firma="Acme", von="2020-01", bis=None,
+            werdegang_bullets=["bullet"],
+            projekterfahrung=[],
+        )],
+        skills_kategorisiert=SkillKategorien(automatisierung_ki=["Python"]),
     ))
     mocker.patch("bewerber.tailoring.orchestrator.generate_anschreiben", return_value=AnschreibenContent(
         anrede="Sehr geehrte Damen und Herren,",
@@ -101,7 +105,7 @@ def test_tailor_loads_anschreiben_few_shot_examples(tmp_path, mocker, monkeypatc
     _write_master(bewerber_dir).rename(bewerber_dir / "master_profile.yaml")
 
     mocker.patch("bewerber.tailoring.orchestrator.customize_resume", return_value=CustomizedResume(
-        berufsprofil_zugespitzt="x", berufserfahrung=[], projekte_hervorheben=[], skills_reihenfolge=[],
+        berufsprofil_zugespitzt="x", berufserfahrung=[], skills_kategorisiert=SkillKategorien(),
     ))
     gen = mocker.patch("bewerber.tailoring.orchestrator.generate_anschreiben", return_value=AnschreibenContent(
         anrede="x", einleitung="x", hauptteil="x", schluss="x", gruss="x",

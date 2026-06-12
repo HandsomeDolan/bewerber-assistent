@@ -5,28 +5,48 @@
 <title>Anschreiben {{ profile.person.name }} — {{ firma }}</title>
 <style>
 @page { size: A4; margin: 2.5cm 2.5cm 2cm 2.5cm; }
-body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #222; }
-.sender { font-size: 9pt; color: #555; margin-bottom: 2em; }
+body {
+  font-family: "Helvetica Neue", "Arial", "Liberation Sans", sans-serif;
+  font-size: 11pt; line-height: 1.5; color: #1a1a1a;
+  margin: 0;
+}
+.sender {
+  font-size: 9pt; color: #333;
+  margin-bottom: 2.4em;
+  border-bottom: 0.5pt solid #888;
+  padding-bottom: 4pt;
+}
 .sender div { margin: 0; }
-.recipient { margin-bottom: 1.5em; }
-.recipient div { margin: 0; }
-.datum { text-align: right; margin-bottom: 1em; font-size: 10pt; color: #555; }
-.betreff { font-weight: 600; margin: 1em 0 1.2em 0; }
+.recipient { margin-bottom: 2.4em; }
+.recipient div { margin: 0; font-size: 10.5pt; }
+.datum {
+  text-align: right;
+  margin-bottom: 1.4em;
+  font-size: 10.5pt;
+}
+.betreff {
+  font-weight: 700;
+  font-size: 11pt;
+  margin: 0 0 1.6em 0;
+}
 .body p { margin: 0.6em 0; white-space: pre-wrap; }
-.gruss { margin-top: 1.5em; white-space: pre-wrap; }
+.gruss {
+  margin-top: 1.6em;
+  white-space: pre-wrap;
+}
 </style>
 </head>
 <body>
 
 <div class="sender">
-  <div>{{ profile.person.name }}</div>
+  <div><strong>{{ profile.person.name }}</strong></div>
   {% if profile.person.adresse %}<div>{{ profile.person.adresse }}</div>{% endif %}
-  {% if profile.person.email %}<div>{{ profile.person.email }}</div>{% endif %}
   {% if profile.person.phone %}<div>{{ profile.person.phone }}</div>{% endif %}
+  {% if profile.person.email %}<div>{{ profile.person.email }}</div>{% endif %}
 </div>
 
 <div class="recipient">
-  <div>{{ firma }}</div>
+  <div><strong>{{ firma }}</strong></div>
   {% if kontakt_name %}<div>z. Hd. {{ kontakt_name }}</div>{% endif %}
 </div>
 

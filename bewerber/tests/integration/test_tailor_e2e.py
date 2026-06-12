@@ -8,7 +8,9 @@ from bewerber.cli import main
 from bewerber.shared.profile_schema import (
     MasterProfile, Person, Berufserfahrung, Ausbildung, Sprache, Zertifikat, Project,
 )
-from bewerber.tailoring.customize import CustomizedResume, CustomBerufserfahrung
+from bewerber.tailoring.customize import (
+    CustomizedResume, CustomBerufserfahrung, ProjekterfahrungBlock, SkillKategorien,
+)
 from bewerber.tailoring.anschreiben import AnschreibenContent
 
 
@@ -65,12 +67,19 @@ def test_full_tailor_workflow(tmp_path, monkeypatch, mocker):
             position="Vertriebsleiter & Projektmanager",
             firma="Magna Glaskeramik GmbH",
             von="2020-10", bis="2024-08",
-            aufgaben=["Internationales Team führen", "CRM-Einführung"],
-            erfolge=["Umsatz +10%, Lead-Transparenz +20%"],
-            skills=["Team-Führung", "CRM"],
+            werdegang_bullets=["Internationales Team führen", "CRM-Einführung"],
+            projekterfahrung=[
+                ProjekterfahrungBlock(
+                    titel="Workflow-Automatisierung mit n8n",
+                    aufgaben=["n8n-Workflows für Bestellprozesse"],
+                    ergebnisse=["Umsatz +10%, Lead-Transparenz +20%"],
+                ),
+            ],
         )],
-        projekte_hervorheben=["8-n8n-builder"],
-        skills_reihenfolge=["Projektmanagement", "n8n", "Python", "KI-Automatisierung"],
+        skills_kategorisiert=SkillKategorien(
+            projektmanagement=["Projektmanagement"],
+            automatisierung_ki=["n8n", "Python", "KI-Automatisierung"],
+        ),
     ))
     mocker.patch("bewerber.tailoring.orchestrator.generate_anschreiben", return_value=AnschreibenContent(
         anrede="Sehr geehrte Damen und Herren,",
@@ -106,8 +115,10 @@ def test_full_tailor_workflow(tmp_path, monkeypatch, mocker):
         cv_text = "\n".join((page.extract_text() or "") for page in p.pages)
     assert "Steve Eigenwillig" in cv_text
     assert "Magna" in cv_text
-    assert "n8n Builder" in cv_text
-    assert "KI-Automatisierung" in cv_text or "Automatisierung" in cv_text
+    assert "Workflow-Automatisierung" in cv_text  # thematic block title (no project names)
+    assert "n8n" in cv_text  # appears in skills + thematic block
+    assert "DETAILLIERTE PROJEKTERFAHRUNG" in cv_text  # new section
+    assert "Automatisierung" in cv_text and "KI:" in cv_text  # categorized skills label
 
     with pdfplumber.open(io.BytesIO((out_dir / "anschreiben.pdf").read_bytes())) as p:
         ans_text = "\n".join((page.extract_text() or "") for page in p.pages)

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML
 
@@ -17,15 +18,31 @@ def _env() -> Environment:
     )
 
 
-def render_lebenslauf(profile: MasterProfile, customized: CustomizedResume) -> bytes:
-    """Render Lebenslauf as PDF bytes."""
-    highlighted = _select_highlighted_projects(profile, customized.projekte_hervorheben)
-    html_text = _env().get_template("lebenslauf.html.j2").render(
+def render_lebenslauf(
+    profile: MasterProfile,
+    customized: CustomizedResume,
+    zielposition_titel: Optional[str] = None,
+) -> bytes:
+    """Render Lebenslauf as PDF bytes.
+
+    `zielposition_titel`: optional Untertitel im Header (z. B. Rolle, auf die beworben wird).
+    Default: "Projekt- und Prozessmanager" (im Template hartcodiert als Fallback).
+    """
+    html_text = _lebenslauf_html(profile, customized, zielposition_titel)
+    return HTML(string=html_text).write_pdf()
+
+
+def _lebenslauf_html(
+    profile: MasterProfile,
+    customized: CustomizedResume,
+    zielposition_titel: Optional[str] = None,
+) -> str:
+    """Render Lebenslauf HTML string (used by orchestrator to persist editable source)."""
+    return _env().get_template("lebenslauf.html.j2").render(
         profile=profile,
         customized=customized,
-        highlighted_projects=highlighted,
+        zielposition_titel=zielposition_titel,
     )
-    return HTML(string=html_text).write_pdf()
 
 
 def render_anschreiben(
@@ -34,7 +51,7 @@ def render_anschreiben(
     firma: str,
     rolle: str,
     datum: str,
-    kontakt_name: str | None,
+    kontakt_name: Optional[str],
 ) -> bytes:
     """Render Anschreiben as PDF bytes."""
     html_text = _env().get_template("anschreiben.html.j2").render(
@@ -46,13 +63,3 @@ def render_anschreiben(
         kontakt_name=kontakt_name,
     )
     return HTML(string=html_text).write_pdf()
-
-
-def _select_highlighted_projects(profile: MasterProfile, ids: list[str]) -> list:
-    """Return projekte from profile matching ids, in given order."""
-    by_id = {p.id: p for p in profile.projekte if p.sichtbar_in_lebenslauf}
-    out = []
-    for pid in ids:
-        if pid in by_id:
-            out.append(by_id[pid])
-    return out

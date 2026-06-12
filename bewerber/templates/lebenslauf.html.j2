@@ -1,98 +1,183 @@
+{# Macros: deutsche Monatsformatierung "2026-01" → "Jan 2026" #}
+{%- set MONATE_DE = ["", "Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"] -%}
+{%- macro fmt_ym(s) -%}
+{%- if not s -%}{%- else -%}
+{%- set parts = s.split("-") -%}
+{%- if parts | length == 2 -%}{{ MONATE_DE[parts[1] | int] }} {{ parts[0] }}{%- else -%}{{ s }}{%- endif -%}
+{%- endif -%}
+{%- endmacro -%}
+{%- macro fmt_year(s) -%}
+{%- if not s -%}{%- else -%}{{ s.split("-")[0] }}{%- endif -%}
+{%- endmacro -%}
 <!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
 <title>Lebenslauf {{ profile.person.name }}</title>
 <style>
-@page { size: A4; margin: 1.5cm 2cm; }
-body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 10pt; line-height: 1.45; color: #222; }
-h1 { font-size: 22pt; margin: 0 0 0.2em 0; font-weight: 600; color: #1a3a5c; }
-h2 { font-size: 13pt; margin: 1.4em 0 0.4em 0; font-weight: 600; color: #1a3a5c; border-bottom: 1px solid #1a3a5c; padding-bottom: 2pt; }
-h3 { font-size: 11pt; margin: 0.6em 0 0.1em 0; font-weight: 600; }
-.contact { color: #555; font-size: 9.5pt; margin-bottom: 1em; }
-.contact span { margin-right: 1.2em; }
-.berufsprofil { font-style: italic; margin: 0.6em 0 0 0; }
-.stelle { margin: 0.6em 0 0.8em 0; }
-.stelle-meta { color: #555; font-size: 9.5pt; }
-.firma { font-weight: 600; }
-ul { margin: 0.2em 0 0.4em 1.3em; padding: 0; }
-li { margin-bottom: 0.15em; }
-.skills { line-height: 1.7; }
-.skill-chip { display: inline-block; background: #e8eef5; padding: 1pt 6pt; margin: 0 4pt 4pt 0; border-radius: 3pt; font-size: 9pt; }
-.projekt { margin: 0.5em 0 0.6em 0; }
-.projekt-titel { font-weight: 600; }
-.zweispaltig { display: flex; gap: 2em; }
-.zweispaltig > div { flex: 1; }
+@page {
+  size: A4;
+  margin: 1.8cm 2cm 1.5cm 2cm;
+  @bottom-right { content: "Seite " counter(page) " von " counter(pages); font-size: 8.5pt; color: #888; }
+}
+* { box-sizing: border-box; }
+body {
+  font-family: "Helvetica Neue", "Arial", "Liberation Sans", sans-serif;
+  font-size: 10pt;
+  line-height: 1.45;
+  color: #1a1a1a;
+  margin: 0;
+}
+.header { text-align: center; margin-bottom: 4pt; }
+.name {
+  font-size: 24pt; font-weight: 700; letter-spacing: 0.8pt;
+  margin: 0 0 4pt 0;
+}
+.subtitle {
+  font-size: 11.5pt; font-weight: 600;
+  margin: 0 0 5pt 0;
+}
+.address { font-size: 9.5pt; color: #333; margin: 0 0 4pt 0; }
+.contact-line {
+  display: flex; justify-content: space-between;
+  margin: 8pt 0 10pt 0;
+  font-size: 10pt; font-weight: 700;
+}
+.section-divider {
+  border-top: 1pt solid #1a1a1a;
+  border-bottom: 1pt solid #1a1a1a;
+  padding: 4pt 0;
+  margin: 14pt 0 6pt 0;
+}
+.section-title {
+  text-align: center;
+  font-weight: 700;
+  font-size: 11pt;
+  letter-spacing: 0.5pt;
+  text-decoration: underline;
+}
+.profile-text {
+  text-align: center;
+  font-size: 10pt;
+  line-height: 1.55;
+  margin: 4pt 1em 8pt 1em;
+}
+.skill-cat { margin: 0 0 4pt 0; }
+.skill-cat-label { font-weight: 700; }
+.werdegang-entry { margin: 6pt 0 8pt 0; page-break-inside: avoid; }
+.werdegang-head { display: flex; justify-content: space-between; align-items: baseline; }
+.werdegang-title { font-weight: 700; font-size: 10.5pt; flex: 1; padding-right: 8pt; }
+.werdegang-title .firma { font-style: normal; }
+.werdegang-date { font-size: 9.5pt; color: #333; white-space: nowrap; }
+ul.bullets { margin: 4pt 0 0 1.4em; padding: 0; }
+ul.bullets li { margin-bottom: 2pt; }
+.projektstelle { margin: 10pt 0 0 0; page-break-inside: avoid; }
+.projektstelle-period { font-weight: 700; font-size: 10pt; margin: 4pt 0 1pt 0; }
+.projektstelle-header { font-weight: 700; font-size: 10.5pt; margin: 0 0 4pt 0; }
+.projektblock { margin: 6pt 0 8pt 0; page-break-inside: avoid; }
+.projektblock-title { font-weight: 700; font-size: 10pt; margin: 0 0 2pt 0; }
+.ergebnis { font-weight: 700; }
+.bildung-entry {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin: 4pt 0;
+}
+.bildung-left { flex: 1; padding-right: 8pt; }
+.bildung-institution { font-weight: 700; }
+.bildung-abschluss { font-style: italic; font-size: 9.5pt; color: #333; }
+.bildung-date { font-size: 9.5pt; color: #333; white-space: nowrap; }
+.sprachen-row { display: flex; gap: 1.5em; flex-wrap: wrap; margin: 6pt 0; }
+.sprachen-row > div { flex: 1; min-width: 8em; }
+.zertifikate-list { margin: 4pt 0 0 0; padding: 0; list-style: none; }
+.zertifikate-list li { font-weight: 700; margin: 3pt 0; }
 </style>
 </head>
 <body>
 
-<h1>{{ profile.person.name }}</h1>
-<div class="contact">
-{% if profile.person.email %}<span>📧 {{ profile.person.email }}</span>{% endif %}
-{% if profile.person.phone %}<span>📞 {{ profile.person.phone }}</span>{% endif %}
-{% if profile.person.adresse %}<span>📍 {{ profile.person.adresse }}</span>{% endif %}
-{% if profile.person.linkedin %}<span>🔗 {{ profile.person.linkedin }}</span>{% endif %}
+<div class="header">
+  <div class="name">{{ profile.person.name }}</div>
+  <div class="subtitle">{{ zielposition_titel or "Projekt- und Prozessmanager" }}</div>
+  {% if profile.person.adresse %}<div class="address">{{ profile.person.adresse }}</div>{% endif %}
+</div>
+<div class="contact-line">
+  <span>{{ profile.person.phone or "" }}</span>
+  <span>{{ profile.person.email or "" }}</span>
 </div>
 
-<p class="berufsprofil">{{ customized.berufsprofil_zugespitzt or profile.berufsprofil }}</p>
+<div class="section-divider"><div class="section-title">PROFIL</div></div>
+<p class="profile-text">{{ customized.berufsprofil_zugespitzt or profile.berufsprofil }}</p>
 
-<h2>Berufserfahrung</h2>
+<div class="section-divider"><div class="section-title">SKILLS</div></div>
+{% set sk = customized.skills_kategorisiert %}
+{% if sk.prozessmanagement %}<div class="skill-cat"><span class="skill-cat-label">Prozessmanagement:</span> {{ sk.prozessmanagement | join(", ") }}</div>{% endif %}
+{% if sk.projektmanagement %}<div class="skill-cat"><span class="skill-cat-label">Projektmanagement:</span> {{ sk.projektmanagement | join(", ") }}</div>{% endif %}
+{% if sk.kommunikation_training %}<div class="skill-cat"><span class="skill-cat-label">Kommunikation &amp; Training:</span> {{ sk.kommunikation_training | join(", ") }}</div>{% endif %}
+{% if sk.automatisierung_ki %}<div class="skill-cat"><span class="skill-cat-label">Automatisierung &amp; KI:</span> {{ sk.automatisierung_ki | join(", ") }}</div>{% endif %}
+{% if sk.vertrieb %}<div class="skill-cat"><span class="skill-cat-label">Vertrieb:</span> {{ sk.vertrieb | join(", ") }}</div>{% endif %}
+
+<div class="section-divider"><div class="section-title">WERDEGANG</div></div>
 {% for job in customized.berufserfahrung %}
-<div class="stelle">
-  <h3>{{ job.position }} — <span class="firma">{{ job.firma }}</span></h3>
-  <div class="stelle-meta">{{ job.von }} – {{ job.bis or "heute" }}{% if job.standort %} · {{ job.standort }}{% endif %}</div>
-  {% if job.aufgaben %}
-  <ul>{% for a in job.aufgaben %}<li>{{ a }}</li>{% endfor %}</ul>
-  {% endif %}
-  {% if job.erfolge %}
-  <ul>{% for e in job.erfolge %}<li><strong>{{ e }}</strong></li>{% endfor %}</ul>
+<div class="werdegang-entry">
+  <div class="werdegang-head">
+    <div class="werdegang-title">{{ job.position }}{% if job.firma %}, <span class="firma">{{ job.firma }}</span>{% endif %}</div>
+    <div class="werdegang-date">{{ fmt_ym(job.von) }} — {% if job.bis %}{{ fmt_ym(job.bis) }}{% else %}heute{% endif %}</div>
+  </div>
+  {% if job.werdegang_bullets %}
+  <ul class="bullets">
+    {% for bullet in job.werdegang_bullets %}<li>{{ bullet }}</li>{% endfor %}
+  </ul>
   {% endif %}
 </div>
 {% endfor %}
 
-{% if highlighted_projects %}
-<h2>Ausgewählte Projekte</h2>
-{% for p in highlighted_projects %}
-<div class="projekt">
-  <div class="projekt-titel">{{ p.titel }}</div>
-  {% if p.kurzbeschreibung %}<div>{{ p.kurzbeschreibung }}</div>{% endif %}
-  {% if p.rolle %}<div><em>Rolle:</em> {{ p.rolle }}</div>{% endif %}
-  {% if p.skills_fachlich %}<div><em>Skills:</em> {{ p.skills_fachlich | join(", ") }}</div>{% endif %}
+{# Detaillierte Projekterfahrung — nur Stellen mit projekterfahrung-Blöcken #}
+{% set has_detail = customized.berufserfahrung | selectattr("projekterfahrung") | list | length > 0 %}
+{% if has_detail %}
+<div class="section-divider"><div class="section-title">DETAILLIERTE PROJEKTERFAHRUNG</div></div>
+{% for job in customized.berufserfahrung %}
+{% if job.projekterfahrung %}
+<div class="projektstelle">
+  <div class="projektstelle-period">[{{ fmt_year(job.von) }}{% if job.bis %} – {{ fmt_year(job.bis) }}{% else %} – heute{% endif %}]</div>
+  <div class="projektstelle-header">{{ job.position }}{% if job.firma %} — {{ job.firma }}{% endif %}{% if job.standort %} ({{ job.standort }}){% endif %}</div>
+  {% for block in job.projekterfahrung %}
+  <div class="projektblock">
+    <div class="projektblock-title">{{ block.titel }}</div>
+    {% if block.aufgaben or block.ergebnisse %}
+    <ul class="bullets">
+      {% for a in block.aufgaben %}<li>{{ a }}</li>{% endfor %}
+      {% for e in block.ergebnisse %}<li class="ergebnis">➔ Ergebnis: {{ e }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endfor %}
 </div>
+{% endif %}
 {% endfor %}
 {% endif %}
 
-<h2>Ausbildung</h2>
+<div class="section-divider"><div class="section-title">BILDUNG</div></div>
 {% for edu in profile.ausbildung %}
-<div class="stelle">
-  <h3>{{ edu.abschluss or edu.art }}</h3>
-  <div class="stelle-meta">{{ edu.institution }}{% if edu.jahr %} · {{ edu.jahr }}{% endif %}</div>
+<div class="bildung-entry">
+  <div class="bildung-left">
+    <div class="bildung-institution">{{ edu.institution }}</div>
+    {% if edu.abschluss %}<div class="bildung-abschluss">{{ edu.abschluss }}</div>{% endif %}
+  </div>
+  <div class="bildung-date">{{ edu.jahr or "" }}</div>
 </div>
 {% endfor %}
 
-<div class="zweispaltig">
-  <div>
-    <h2>Skills</h2>
-    <div class="skills">
-      {% for skill in customized.skills_reihenfolge %}<span class="skill-chip">{{ skill }}</span>{% endfor %}
-    </div>
-  </div>
-  <div>
-    {% if profile.sprachen %}
-    <h2>Sprachen</h2>
-    <ul>
-      {% for s in profile.sprachen %}<li>{{ s.sprache }} ({{ s.niveau }})</li>{% endfor %}
-    </ul>
-    {% endif %}
-    {% if profile.zertifikate %}
-    <h2>Zertifikate</h2>
-    <ul>
-      {% for z in profile.zertifikate %}<li>{{ z.name }}{% if z.aussteller %} — {{ z.aussteller }}{% endif %}</li>{% endfor %}
-    </ul>
-    {% endif %}
-  </div>
+{% if profile.sprachen %}
+<div class="section-divider"><div class="section-title">SPRACHEN</div></div>
+<div class="sprachen-row">
+  {% for s in profile.sprachen %}<div>{{ s.sprache }} ............... {{ s.niveau }}</div>{% endfor %}
 </div>
+{% endif %}
+
+{% if profile.zertifikate %}
+<div class="section-divider"><div class="section-title">WEITERBILDUNGEN &amp; ZERTIFIKATE</div></div>
+<ul class="zertifikate-list">
+{% for z in profile.zertifikate %}<li>{{ z.name }}</li>{% endfor %}
+</ul>
+{% endif %}
 
 </body>
 </html>

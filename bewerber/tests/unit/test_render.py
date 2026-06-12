@@ -1,6 +1,11 @@
 from pathlib import Path
 from bewerber.tailoring.render import render_lebenslauf, render_anschreiben
-from bewerber.tailoring.customize import CustomizedResume, CustomBerufserfahrung
+from bewerber.tailoring.customize import (
+    CustomizedResume,
+    CustomBerufserfahrung,
+    ProjekterfahrungBlock,
+    SkillKategorien,
+)
 from bewerber.tailoring.anschreiben import AnschreibenContent
 from bewerber.shared.profile_schema import (
     MasterProfile, Person, Berufserfahrung, Project, Ausbildung, Sprache, Zertifikat,
@@ -31,11 +36,22 @@ def _customized() -> CustomizedResume:
     return CustomizedResume(
         berufsprofil_zugespitzt="Zugeschnitten.",
         berufserfahrung=[
-            CustomBerufserfahrung(position="PM", firma="Acme", von="2020-01", bis="2024-08",
-                                   aufgaben=["a1 (tailored)"], erfolge=["e1"], skills=["Python"]),
+            CustomBerufserfahrung(
+                position="PM", firma="Acme", von="2020-01", bis="2024-08",
+                werdegang_bullets=["High-level a1", "High-level a2"],
+                projekterfahrung=[
+                    ProjekterfahrungBlock(
+                        titel="Workflow-Automatisierung mit n8n",
+                        aufgaben=["b1", "b2"],
+                        ergebnisse=["1,5 h/Tag → 10 min/Tag"],
+                    ),
+                ],
+            ),
         ],
-        projekte_hervorheben=["1-x"],
-        skills_reihenfolge=["Python", "n8n", "Leadership"],
+        skills_kategorisiert=SkillKategorien(
+            projektmanagement=["Projektplanung", "Stakeholder-Management"],
+            automatisierung_ki=["n8n", "Python"],
+        ),
     )
 
 
@@ -45,18 +61,35 @@ def test_render_lebenslauf_returns_pdf_bytes(tmp_path):
     assert len(pdf) > 1000  # has actual content
 
 
-def test_render_lebenslauf_includes_highlighted_projects():
-    """Projects in projekte_hervorheben must appear in PDF (we check via text extraction)."""
+def test_render_lebenslauf_includes_thematic_blocks_and_categorized_skills():
+    """Thematic blocks + categorized skills + werdegang bullets appear in the rendered PDF."""
+    import pdfplumber
+    import io
+    pdf_bytes = render_lebenslauf(_profile(), _customized(), zielposition_titel="Test-Zielposition")
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        text = "\n".join((p.extract_text() or "") for p in pdf.pages)
+    assert "Steve Eigenwillig" in text
+    assert "Test-Zielposition" in text  # passed-through subtitle
+    assert "Zugeschnitten." in text
+    assert "High-level a1" in text  # werdegang bullet
+    # Categorized skills section
+    assert "Projektmanagement:" in text
+    assert "Automatisierung" in text and "KI:" in text
+    assert "n8n" in text
+    # Detaillierte Projekterfahrung
+    assert "DETAILLIERTE PROJEKTERFAHRUNG" in text
+    assert "Workflow-Automatisierung mit n8n" in text
+    assert "1,5 h/Tag" in text  # ergebnis line
+
+
+def test_render_lebenslauf_without_zielposition_falls_back_to_default():
+    """When no zielposition_titel passed, template uses default fallback."""
     import pdfplumber
     import io
     pdf_bytes = render_lebenslauf(_profile(), _customized())
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         text = "\n".join((p.extract_text() or "") for p in pdf.pages)
-    assert "Steve Eigenwillig" in text
-    assert "Zugeschnitten." in text
-    assert "Acme" in text
-    assert "X" in text  # project title
-    assert "Python" in text
+    assert "Projekt- und Prozessmanager" in text
 
 
 def test_render_anschreiben_returns_pdf_bytes():

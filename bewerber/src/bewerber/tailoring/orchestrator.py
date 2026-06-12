@@ -15,7 +15,7 @@ from bewerber.tailoring.anschreiben import (
     _collect_few_shot_examples,
 )
 from bewerber.tailoring.customize import CustomizedResume, customize_resume
-from bewerber.tailoring.render import render_anschreiben, render_lebenslauf
+from bewerber.tailoring.render import render_anschreiben, render_lebenslauf, _lebenslauf_html
 
 
 @dataclass
@@ -60,14 +60,17 @@ def tailor(inp: TailorInput) -> TailorResult:
 
     # Render PDFs and persist sources
     datum_de = _to_german_date(inp.datum)
-    lebenslauf_pdf = render_lebenslauf(master, customized)
+    lebenslauf_pdf = render_lebenslauf(master, customized, zielposition_titel=inp.rolle)
     anschreiben_pdf = render_anschreiben(
         master, anschreiben,
         firma=inp.firma, rolle=inp.rolle, datum=datum_de, kontakt_name=inp.kontakt_name,
     )
     (out_dir / "lebenslauf.pdf").write_bytes(lebenslauf_pdf)
     (out_dir / "anschreiben.pdf").write_bytes(anschreiben_pdf)
-    (out_dir / "lebenslauf.html").write_text(_lebenslauf_html(master, customized), encoding="utf-8")
+    (out_dir / "lebenslauf.html").write_text(
+        _lebenslauf_html(master, customized, zielposition_titel=inp.rolle),
+        encoding="utf-8",
+    )
     (out_dir / "anschreiben.md").write_text(anschreiben.to_markdown(), encoding="utf-8")
     (out_dir / "posting.txt").write_text(inp.posting_text, encoding="utf-8")
 
@@ -117,15 +120,6 @@ def _load_master(path: Path) -> MasterProfile:
     """Load and validate master_profile.yaml."""
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     return MasterProfile(**data)
-
-
-def _lebenslauf_html(master: MasterProfile, customized: CustomizedResume) -> str:
-    """Render Lebenslauf HTML source (without PDF conversion) for later editing."""
-    from bewerber.tailoring.render import _env, _select_highlighted_projects
-    highlighted = _select_highlighted_projects(master, customized.projekte_hervorheben)
-    return _env().get_template("lebenslauf.html.j2").render(
-        profile=master, customized=customized, highlighted_projects=highlighted,
-    )
 
 
 def _to_german_date(iso: str) -> str:
