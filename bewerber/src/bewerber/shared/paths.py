@@ -6,7 +6,8 @@ from pathlib import Path
 class Paths:
     """Central path configuration. Allows override via env vars for testing."""
 
-    PROJECT_FOLDER_REGEX = re.compile(r"^\d+\s+.+")
+    PROJECT_FOLDER_REGEX = re.compile(r"^\d+[\s_]+.+")
+    _LEADING_NUMBER_REGEX = re.compile(r"^(\d+)")
 
     def __init__(self) -> None:
         self.workspace = Path(
@@ -49,8 +50,12 @@ class Paths:
         ]
         return sorted(candidates, key=self._sort_key)
 
-    @staticmethod
-    def _sort_key(p: Path) -> tuple[int, str]:
-        """Sort by (leading number, full name) for natural ordering."""
-        leading = p.name.split(None, 1)[0]
-        return (int(leading), p.name)
+    @classmethod
+    def _sort_key(cls, p: Path) -> tuple[int, str]:
+        """Sort by (leading number, full name) for natural ordering.
+
+        Handles both space and underscore separators (e.g. `5 DeadEnd` and `20_SEO_AFM`).
+        """
+        match = cls._LEADING_NUMBER_REGEX.match(p.name)
+        leading = int(match.group(1)) if match else 0
+        return (leading, p.name)

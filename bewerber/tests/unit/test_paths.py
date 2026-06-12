@@ -63,3 +63,27 @@ def test_project_folders_returns_empty_when_documents_missing(monkeypatch, tmp_p
     monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path / "nonexistent"))
     p = Paths()
     assert p.project_folders() == []
+
+
+def test_project_folders_accepts_underscore_separator(monkeypatch, tmp_path):
+    """Folders may use either `5 DeadEnd` (space) or `20_SEO_AFM` (underscore) as separator."""
+    monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path))
+    for name in [
+        "5 DeadEnd",
+        "16 API Gateway",
+        "16_Marketing",
+        "18_Projectmanagement",
+        "20_SEO_AFM",
+        "22_BandScoring",
+    ]:
+        (tmp_path / name).mkdir()
+    p = Paths()
+    names = [f.name for f in p.project_folders()]
+    assert names == [
+        "5 DeadEnd",
+        "16 API Gateway",
+        "16_Marketing",
+        "18_Projectmanagement",
+        "20_SEO_AFM",
+        "22_BandScoring",
+    ]
