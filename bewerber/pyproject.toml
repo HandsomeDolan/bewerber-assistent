@@ -22,6 +22,9 @@ dependencies = [
     "playwright>=1.40",
     "markdown-it-py>=3.0",
     "python-slugify>=8.0",
+    "python-jobspy>=1.1.80",
+    "requests>=2.31",
+    "readability-lxml>=0.8.1",
 ]
 
 [project.optional-dependencies]
