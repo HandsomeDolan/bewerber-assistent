@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Lebenslauf {{ profile.person.name }}</title>
+<style>
+@page { size: A4; margin: 1.5cm 2cm; }
+body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 10pt; line-height: 1.45; color: #222; }
+h1 { font-size: 22pt; margin: 0 0 0.2em 0; font-weight: 600; color: #1a3a5c; }
+h2 { font-size: 13pt; margin: 1.4em 0 0.4em 0; font-weight: 600; color: #1a3a5c; border-bottom: 1px solid #1a3a5c; padding-bottom: 2pt; }
+h3 { font-size: 11pt; margin: 0.6em 0 0.1em 0; font-weight: 600; }
+.contact { color: #555; font-size: 9.5pt; margin-bottom: 1em; }
+.contact span { margin-right: 1.2em; }
+.berufsprofil { font-style: italic; margin: 0.6em 0 0 0; }
+.stelle { margin: 0.6em 0 0.8em 0; }
+.stelle-meta { color: #555; font-size: 9.5pt; }
+.firma { font-weight: 600; }
+ul { margin: 0.2em 0 0.4em 1.3em; padding: 0; }
+li { margin-bottom: 0.15em; }
+.skills { line-height: 1.7; }
+.skill-chip { display: inline-block; background: #e8eef5; padding: 1pt 6pt; margin: 0 4pt 4pt 0; border-radius: 3pt; font-size: 9pt; }
+.projekt { margin: 0.5em 0 0.6em 0; }
+.projekt-titel { font-weight: 600; }
+.zweispaltig { display: flex; gap: 2em; }
+.zweispaltig > div { flex: 1; }
+</style>
+</head>
+<body>
+
+<h1>{{ profile.person.name }}</h1>
+<div class="contact">
+{% if profile.person.email %}<span>📧 {{ profile.person.email }}</span>{% endif %}
+{% if profile.person.phone %}<span>📞 {{ profile.person.phone }}</span>{% endif %}
+{% if profile.person.adresse %}<span>📍 {{ profile.person.adresse }}</span>{% endif %}
+{% if profile.person.linkedin %}<span>🔗 {{ profile.person.linkedin }}</span>{% endif %}
+</div>
+
+<p class="berufsprofil">{{ customized.berufsprofil_zugespitzt or profile.berufsprofil }}</p>
+
+<h2>Berufserfahrung</h2>
+{% for job in customized.berufserfahrung %}
+<div class="stelle">
+  <h3>{{ job.position }} — <span class="firma">{{ job.firma }}</span></h3>
+  <div class="stelle-meta">{{ job.von }} – {{ job.bis or "heute" }}{% if job.standort %} · {{ job.standort }}{% endif %}</div>
+  {% if job.aufgaben %}
+  <ul>{% for a in job.aufgaben %}<li>{{ a }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if job.erfolge %}
+  <ul>{% for e in job.erfolge %}<li><strong>{{ e }}</strong></li>{% endfor %}</ul>
+  {% endif %}
+</div>
+{% endfor %}
+
+{% if highlighted_projects %}
+<h2>Ausgewählte Projekte</h2>
+{% for p in highlighted_projects %}
+<div class="projekt">
+  <div class="projekt-titel">{{ p.titel }}</div>
+  {% if p.kurzbeschreibung %}<div>{{ p.kurzbeschreibung }}</div>{% endif %}
+  {% if p.rolle %}<div><em>Rolle:</em> {{ p.rolle }}</div>{% endif %}
+  {% if p.skills_fachlich %}<div><em>Skills:</em> {{ p.skills_fachlich | join(", ") }}</div>{% endif %}
+</div>
+{% endfor %}
+{% endif %}
+
+<h2>Ausbildung</h2>
+{% for edu in profile.ausbildung %}
+<div class="stelle">
+  <h3>{{ edu.abschluss or edu.art }}</h3>
+  <div class="stelle-meta">{{ edu.institution }}{% if edu.jahr %} · {{ edu.jahr }}{% endif %}</div>
+</div>
+{% endfor %}
+
+<div class="zweispaltig">
+  <div>
+    <h2>Skills</h2>
+    <div class="skills">
+      {% for skill in customized.skills_reihenfolge %}<span class="skill-chip">{{ skill }}</span>{% endfor %}
+    </div>
+  </div>
+  <div>
+    {% if profile.sprachen %}
+    <h2>Sprachen</h2>
+    <ul>
+      {% for s in profile.sprachen %}<li>{{ s.sprache }} ({{ s.niveau }})</li>{% endfor %}
+    </ul>
+    {% endif %}
+    {% if profile.zertifikate %}
+    <h2>Zertifikate</h2>
+    <ul>
+      {% for z in profile.zertifikate %}<li>{{ z.name }}{% if z.aussteller %} — {{ z.aussteller }}{% endif %}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</div>
+
+</body>
+</html>
