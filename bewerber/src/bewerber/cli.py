@@ -1,5 +1,6 @@
 import tempfile
 from datetime import date
+from datetime import datetime as _datetime
 from pathlib import Path
 
 import click
@@ -24,6 +25,7 @@ from bewerber.discovery.scrapers import arbeitsagentur as _arbeitsagentur  # noq
 from bewerber.discovery.scrapers import linkedin as _linkedin  # noqa: F401
 from bewerber.discovery.scrapers import indeed as _indeed  # noqa: F401
 from bewerber.shared.state import load_state, save_state
+from bewerber.shared.state_schema import JobStatus, StatusHistoryEntry
 
 load_dotenv()
 
@@ -215,6 +217,58 @@ def cmd_discover() -> None:
         click.echo("Scrape-Fehler:")
         for board, err in state.scrape_errors.items():
             click.echo(f"  · {board}: {err.last_error}")
+
+
+def _parse_status(value: str) -> JobStatus:
+    try:
+        return JobStatus(value)
+    except ValueError:
+        valid = ", ".join(s.value for s in JobStatus)
+        raise click.BadParameter(f"Ungültiger Status {value!r}. Erlaubt: {valid}")
+
+
+@main.command("mark")
+@click.argument("job_id")
+@click.argument("status", callback=lambda ctx, param, val: _parse_status(val))
+@click.option("--link", "application_link", help="URL der eingereichten Bewerbung (für Status `applied`).")
+@click.option("--at", "interview_at", help="Datum/Zeit eines Interviews (ISO oder freie Form).")
+def cmd_mark(job_id: str, status: JobStatus, application_link: str | None, interview_at: str | None) -> None:
+    """Setzt den Status einer Bewerbung (discovered/shortlisted/tailored/applied/interview/offer/rejected/withdrawn)."""
+    paths = Paths()
+    state = load_state(paths.state_json)
+    if job_id not in state.jobs:
+        click.echo(f"Job-ID {job_id!r} nicht gefunden in {paths.state_json}.")
+        raise click.exceptions.Exit(1)
+    job = state.jobs[job_id]
+    job.status = status
+    job.status_history.append(StatusHistoryEntry(
+        status=status,
+        at=_datetime.now().isoformat(timespec="seconds"),
+    ))
+    if application_link:
+        job.application_link = application_link
+    if interview_at:
+        job.interview_scheduled = interview_at
+    save_state(paths.state_json, state)
+    click.echo(f"✔ {job_id} → {status.value}")
+
+
+@main.command("note")
+@click.argument("job_id")
+@click.argument("text")
+def cmd_note(job_id: str, text: str) -> None:
+    """Fügt eine Notiz zur Bewerbung hinzu (chronologisch, je Aufruf eine neue Zeile)."""
+    paths = Paths()
+    state = load_state(paths.state_json)
+    if job_id not in state.jobs:
+        click.echo(f"Job-ID {job_id!r} nicht gefunden.")
+        raise click.exceptions.Exit(1)
+    job = state.jobs[job_id]
+    stamp = _datetime.now().strftime("%Y-%m-%d %H:%M")
+    new_entry = f"[{stamp}] {text}"
+    job.notes = f"{job.notes}\n{new_entry}".strip() if job.notes else new_entry
+    save_state(paths.state_json, state)
+    click.echo(f"✔ Notiz hinzugefügt zu {job_id}")
 
 
 if __name__ == "__main__":

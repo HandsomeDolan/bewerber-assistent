@@ -58,3 +58,73 @@ def test_discover_fails_if_master_profile_missing(tmp_path, monkeypatch):
     result = runner.invoke(main, ["discover"])
     assert result.exit_code != 0
     assert "master_profile.yaml" in result.output
+
+
+from bewerber.shared.state import save_state, load_state
+from bewerber.shared.state_schema import BewerberState, RawJob, TrackedJob, JobStatus
+
+
+def _seed_state(workspace: Path) -> Path:
+    bd = workspace / "bewerber"
+    bd.mkdir(parents=True, exist_ok=True)
+    job = TrackedJob(raw=RawJob(
+        board="arbeitsagentur", external_id="x1",
+        url="https://x", title="t", company="c", location="l",
+    ))
+    state = BewerberState(jobs={"arbeitsagentur-x1": job})
+    state_path = bd / "state.json"
+    save_state(state_path, state)
+    return state_path
+
+
+def test_mark_updates_status_and_appends_history(tmp_path, monkeypatch):
+    workspace = tmp_path / "ws"
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(workspace))
+    state_path = _seed_state(workspace)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["mark", "arbeitsagentur-x1", "applied", "--link", "https://applied.example"])
+    assert result.exit_code == 0, result.output
+
+    state = load_state(state_path)
+    job = state.jobs["arbeitsagentur-x1"]
+    assert job.status == JobStatus.APPLIED
+    assert job.application_link == "https://applied.example"
+    assert len(job.status_history) == 1
+    assert job.status_history[0].status == JobStatus.APPLIED
+
+
+def test_mark_invalid_status_rejected(tmp_path, monkeypatch):
+    workspace = tmp_path / "ws"
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(workspace))
+    _seed_state(workspace)
+    runner = CliRunner()
+    result = runner.invoke(main, ["mark", "arbeitsagentur-x1", "applied-yesterday"])
+    assert result.exit_code != 0
+
+
+def test_mark_unknown_job_id(tmp_path, monkeypatch):
+    workspace = tmp_path / "ws"
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(workspace))
+    _seed_state(workspace)
+    runner = CliRunner()
+    result = runner.invoke(main, ["mark", "nonexistent-9999", "applied"])
+    assert result.exit_code != 0
+    assert "nicht gefunden" in result.output.lower() or "unknown" in result.output.lower()
+
+
+def test_note_appends_to_notes_field(tmp_path, monkeypatch):
+    workspace = tmp_path / "ws"
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(workspace))
+    state_path = _seed_state(workspace)
+
+    runner = CliRunner()
+    r1 = runner.invoke(main, ["note", "arbeitsagentur-x1", "Telefoniert am 13.06."])
+    assert r1.exit_code == 0, r1.output
+    r2 = runner.invoke(main, ["note", "arbeitsagentur-x1", "Interview-Einladung erhalten."])
+    assert r2.exit_code == 0
+
+    state = load_state(state_path)
+    notes = state.jobs["arbeitsagentur-x1"].notes
+    assert "Telefoniert" in notes
+    assert "Interview-Einladung" in notes
