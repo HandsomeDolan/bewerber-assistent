@@ -195,3 +195,15 @@ def test_tailor_from_url_calls_snapshot(tmp_path, monkeypatch, mocker):
     inp = fake_tailor.call_args.args[0]
     assert inp.source_url == "https://example.com/job/123"
     assert inp.posting_text.startswith("Posting text from URL")
+
+
+def test_tailor_rebuild_calls_rebuild_pdfs(tmp_path, monkeypatch, mocker):
+    out_dir = tmp_path / "2026-06-12_BMW_KI"
+    out_dir.mkdir()
+    (out_dir / "lebenslauf.html").write_text("<html><body>test</body></html>")
+
+    fake_rebuild = mocker.patch("bewerber.cli.rebuild_pdfs")
+    runner = CliRunner()
+    result = runner.invoke(main, ["tailor", "--rebuild", str(out_dir)])
+    assert result.exit_code == 0, result.output
+    fake_rebuild.assert_called_once_with(out_dir)

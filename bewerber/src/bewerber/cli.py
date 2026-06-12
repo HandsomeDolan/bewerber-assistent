@@ -14,7 +14,7 @@ from bewerber.profile.projects import scan_project
 from bewerber.profile.sync import sync_projects_into_profile
 from bewerber.shared.llm import LLMClient
 from bewerber.shared.paths import Paths
-from bewerber.tailoring.orchestrator import TailorInput, tailor
+from bewerber.tailoring.orchestrator import TailorInput, tailor, rebuild_pdfs
 from bewerber.tailoring.posting import read_posting_from_file
 from bewerber.tailoring.snapshot import snapshot_url
 
@@ -126,10 +126,18 @@ def projects_scan(force: bool) -> None:
 @click.option("--rolle", help="Rollenbezeichnung (für Ordnername + Betreff).")
 @click.option("--kontakt", "kontakt_name", help="Name der Ansprechperson (für Anrede).")
 @click.option("--datum", help="Datum YYYY-MM-DD (default: heute).")
-def cmd_tailor(url, posting_file, firma, rolle, kontakt_name, datum):
+@click.option("--rebuild", "rebuild_dir", type=click.Path(exists=True, file_okay=False, path_type=Path),
+              help="Nur PDFs neu aus dem Bewerbungsordner rendern (keine LLM-Aufrufe).")
+def cmd_tailor(url, posting_file, firma, rolle, kontakt_name, datum, rebuild_dir):
     """Erzeugt tailored Lebenslauf + Anschreiben für eine Stellenausschreibung."""
+    if rebuild_dir:
+        click.echo(f"Re-rendere PDFs aus {rebuild_dir} …")
+        rebuild_pdfs(rebuild_dir)
+        click.echo("Fertig.")
+        return
+
     if not url and not posting_file:
-        click.echo("Fehler: --url ODER --posting-file muss angegeben werden.")
+        click.echo("Fehler: --url ODER --posting-file muss angegeben werden (oder --rebuild).")
         raise click.exceptions.Exit(1)
     if url and posting_file:
         click.echo("Fehler: --url und --posting-file nicht gleichzeitig.")

@@ -132,3 +132,45 @@ def _to_german_date(iso: str) -> str:
     """`2026-06-12` → `12.06.2026`"""
     y, m, d = iso.split("-")
     return f"{d}.{m}.{y}"
+
+
+from markdown_it import MarkdownIt
+from weasyprint import HTML
+
+
+def rebuild_pdfs(out_dir: Path) -> None:
+    """Re-render Lebenslauf and Anschreiben PDFs from the edited HTML/MD sources.
+
+    Reads `out_dir/lebenslauf.html` and `out_dir/anschreiben.md`. The Anschreiben
+    markdown is rendered to a minimal HTML page (uses Anschreiben CSS from the
+    original template).
+    """
+    lebenslauf_html_path = out_dir / "lebenslauf.html"
+    anschreiben_md_path = out_dir / "anschreiben.md"
+
+    if lebenslauf_html_path.is_file():
+        html_text = lebenslauf_html_path.read_text(encoding="utf-8")
+        (out_dir / "lebenslauf.pdf").write_bytes(HTML(string=html_text).write_pdf())
+
+    if anschreiben_md_path.is_file():
+        md_text = anschreiben_md_path.read_text(encoding="utf-8")
+        body_html = MarkdownIt().render(md_text)
+        full_html = _ANSCHREIBEN_REBUILD_TEMPLATE.format(body=body_html)
+        (out_dir / "anschreiben.pdf").write_bytes(HTML(string=full_html).write_pdf())
+
+
+_ANSCHREIBEN_REBUILD_TEMPLATE = """<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<style>
+@page {{ size: A4; margin: 2.5cm 2.5cm 2cm 2.5cm; }}
+body {{ font-family: "Helvetica Neue", Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #222; }}
+h1, h2, h3 {{ margin: 0.6em 0 0.4em 0; }}
+p {{ margin: 0.6em 0; }}
+</style>
+</head>
+<body>
+{body}
+</body>
+</html>"""

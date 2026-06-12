@@ -115,3 +115,34 @@ def test_tailor_loads_anschreiben_few_shot_examples(tmp_path, mocker, monkeypatc
     # Verify few_shot_examples was passed
     args, kwargs = gen.call_args
     assert kwargs["few_shot_examples"] == ["Beispiel-Anschreiben."]
+
+
+from bewerber.tailoring.orchestrator import rebuild_pdfs
+
+
+def test_rebuild_pdfs_from_edited_html_and_md(tmp_path):
+    out_dir = tmp_path / "2026-06-12_BMW_KI"
+    out_dir.mkdir()
+    (out_dir / "lebenslauf.html").write_text(
+        "<!DOCTYPE html><html><body><h1>Manually edited CV</h1></body></html>",
+        encoding="utf-8",
+    )
+    (out_dir / "anschreiben.md").write_text("# Edited\n\nManuell editiert.\n")
+    (out_dir / "posting_meta.yaml").write_text(
+        "firma: BMW\nrolle: KI Manager\ndatum: '2026-06-12'\nkontakt_name: null\nsource_url: null\n"
+    )
+
+    rebuild_pdfs(out_dir)
+
+    pdf_l = (out_dir / "lebenslauf.pdf").read_bytes()
+    pdf_a = (out_dir / "anschreiben.pdf").read_bytes()
+    assert pdf_l.startswith(b"%PDF")
+    assert pdf_a.startswith(b"%PDF")
+
+    import pdfplumber, io
+    with pdfplumber.open(io.BytesIO(pdf_l)) as p:
+        lt = "\n".join((page.extract_text() or "") for page in p.pages)
+    assert "Manually edited CV" in lt
+    with pdfplumber.open(io.BytesIO(pdf_a)) as p:
+        at = "\n".join((page.extract_text() or "") for page in p.pages)
+    assert "Manuell editiert" in at
