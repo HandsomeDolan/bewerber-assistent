@@ -28,6 +28,14 @@ class Paths:
         return self.bewerber_dir / "master_profile.yaml"
 
     @property
+    def state_json(self) -> Path:
+        return self.bewerber_dir / "state.json"
+
+    @property
+    def dashboard_html(self) -> Path:
+        return self.bewerber_dir / "dashboard.html"
+
+    @property
     def bewerbungsunterlagen(self) -> Path:
         return self.documents / "Bewerbungsunterlagen"
 
