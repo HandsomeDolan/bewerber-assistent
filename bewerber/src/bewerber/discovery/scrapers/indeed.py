@@ -1,33 +1,50 @@
 import hashlib
 from datetime import date
 from typing import Optional
+import pandas as pd
 from jobspy import scrape_jobs
 
 from bewerber.shared.state_schema import RawJob
 from bewerber.discovery.scrapers import scraper_registry
 
 
+def _clean(v) -> str:
+    """Convert pandas NaN / None / non-string values to empty string.
+
+    Uses pandas.isna() to catch np.nan, pd.NA, math.nan, None, NaT consistently.
+    """
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(v)
+
+
 def jobspy_row_to_raw_job_indeed(row: dict) -> RawJob:
-    ext = row.get("id")
-    url = row.get("job_url") or ""
+    ext = _clean(row.get("id"))
+    url = _clean(row.get("job_url"))
     if not ext:
         ext = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
-    posted_raw = row.get("date_posted")
+    posted_clean = _clean(row.get("date_posted"))
     posted: Optional[date] = None
-    if posted_raw:
+    if posted_clean:
         try:
-            posted = date.fromisoformat(str(posted_raw))
+            posted = date.fromisoformat(posted_clean)
         except ValueError:
             posted = None
+    desc = _clean(row.get("description"))
     return RawJob(
         board="indeed",
-        external_id=str(ext),
+        external_id=ext,
         url=url,
-        title=row.get("title") or "",
-        company=row.get("company") or "",
-        location=row.get("location") or "",
+        title=_clean(row.get("title")),
+        company=_clean(row.get("company")),
+        location=_clean(row.get("location")),
         posted_date=posted,
-        description=row.get("description") or None,
+        description=desc or None,
     )
 
 
