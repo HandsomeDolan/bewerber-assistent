@@ -209,62 +209,133 @@ def test_chain_includes_openai_fallback_when_key_set(monkeypatch, mocker):
 
 # ---------------------------------------------------------------------------
 # Role-specific factories: for_scoring / for_generation
+# Tests die Provider-Order-Konfiguration + per-Provider-Models.
 # ---------------------------------------------------------------------------
 
-def test_for_scoring_uses_scoring_env_when_set(monkeypatch, mocker):
-    monkeypatch.setenv("BEWERBER_SCORING_MODEL", "gpt-5.1-mini")
-    monkeypatch.setenv("BEWERBER_GENERATION_MODEL", "gpt-5.1")
+def _clean_env(monkeypatch):
+    """Reset alle bewerber-LLM-Envs auf einen sauberen Default."""
+    for var in [
+        "BEWERBER_SCORING_PROVIDER_ORDER",
+        "BEWERBER_GENERATION_PROVIDER_ORDER",
+        "BEWERBER_SCORING_OPENAI_MODEL",
+        "BEWERBER_SCORING_GEMINI_MODEL",
+        "BEWERBER_GENERATION_OPENAI_MODEL",
+        "BEWERBER_GENERATION_GEMINI_MODEL",
+        "BEWERBER_LLM_MODEL",
+        "BEWERBER_GEMINI_MODEL",
+        "OPENAI_API_KEY_FALLBACK",
+        "GOOGLE_API_KEY",
+    ]:
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")
-    monkeypatch.delenv("OPENAI_API_KEY_FALLBACK", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("BEWERBER_LLM_MODEL", raising=False)
+
+
+def test_default_provider_order_is_openai_then_gemini(monkeypatch, mocker):
+    """Default: OpenAI primary, Gemini Fallback."""
+    _clean_env(monkeypatch)
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIz-fake")
+    mocker.patch("bewerber.shared.llm.OpenAI")
+    mocker.patch("bewerber.shared.llm.GeminiProvider")  # avoid real construction
+
+    client = LLMClient.for_scoring()
+    names = [p.name if not hasattr(p, "_mock_name") else "gemini" for p in client.providers]
+    assert names[0].startswith("openai:"), f"got {names!r}"
+    assert "gemini" in str(names[-1]).lower()
+
+
+def test_provider_order_can_be_flipped_to_gemini_first(monkeypatch, mocker):
+    """BEWERBER_SCORING_PROVIDER_ORDER='gemini,openai' -> Gemini wird primary."""
+    _clean_env(monkeypatch)
+    monkeypatch.setenv("BEWERBER_SCORING_PROVIDER_ORDER", "gemini,openai")
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIz-fake")
+    mocker.patch("bewerber.shared.llm.OpenAI")
+    fake_gemini = mocker.patch("bewerber.shared.llm.GeminiProvider")
+    fake_gemini.return_value.model = "gemini-2.0-flash-exp"
+    fake_gemini.return_value.name = "gemini:gemini-2.0-flash-exp"
+
+    client = LLMClient.for_scoring()
+    # First provider should be Gemini
+    assert "gemini" in client.providers[0].name.lower()
+    # Second is OpenAI primary
+    assert client.providers[1].name.startswith("openai:")
+
+
+def test_each_provider_gets_its_own_model(monkeypatch, mocker):
+    """OpenAI bekommt OPENAI_MODEL, Gemini bekommt GEMINI_MODEL - NICHT denselben Namen."""
+    _clean_env(monkeypatch)
+    monkeypatch.setenv("BEWERBER_SCORING_OPENAI_MODEL", "gpt-5.1-mini")
+    monkeypatch.setenv("BEWERBER_SCORING_GEMINI_MODEL", "gemini-2.0-flash-exp")
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIz-fake")
+    mocker.patch("bewerber.shared.llm.OpenAI")
+    fake_gemini = mocker.patch("bewerber.shared.llm.GeminiProvider")
+    fake_gemini.return_value.model = "gemini-2.0-flash-exp"
+    fake_gemini.return_value.name = "gemini:gemini-2.0-flash-exp"
+
+    client = LLMClient.for_scoring()
+    # OpenAI provider model
+    openai_p = next(p for p in client.providers if p.name.startswith("openai:"))
+    assert openai_p.model == "gpt-5.1-mini"
+    # Gemini provider got the OTHER model
+    assert fake_gemini.call_args.kwargs["model"] == "gemini-2.0-flash-exp"
+
+
+def test_unknown_provider_in_order_is_skipped_with_warning(monkeypatch, mocker, caplog):
+    _clean_env(monkeypatch)
+    monkeypatch.setenv("BEWERBER_SCORING_PROVIDER_ORDER", "openai,whatever,gemini")
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIz-fake")
+    mocker.patch("bewerber.shared.llm.OpenAI")
+    mocker.patch("bewerber.shared.llm.GeminiProvider")
+
+    import logging
+    with caplog.at_level(logging.WARNING):
+        client = LLMClient.for_scoring()
+    # 2 valid providers (openai primary + gemini)
+    assert len(client.providers) == 2
+    assert "Unbekannter Provider 'whatever'" in caplog.text
+
+
+def test_role_specific_envs_take_precedence_over_legacy(monkeypatch, mocker):
+    """SCORING_OPENAI_MODEL > BEWERBER_LLM_MODEL."""
+    _clean_env(monkeypatch)
+    monkeypatch.setenv("BEWERBER_LLM_MODEL", "gpt-5.1")
+    monkeypatch.setenv("BEWERBER_SCORING_OPENAI_MODEL", "gpt-5.1-mini")
     mocker.patch("bewerber.shared.llm.OpenAI")
 
     scoring = LLMClient.for_scoring()
+    # Scoring uses the SCORING-specific override
+    assert scoring.providers[0].model == "gpt-5.1-mini"
+    # Generation falls back to BEWERBER_LLM_MODEL
     generation = LLMClient.for_generation()
-    assert scoring.model == "gpt-5.1-mini"
-    assert generation.model == "gpt-5.1"
+    assert generation.providers[0].model == "gpt-5.1"
 
 
-def test_role_env_falls_back_to_llm_model_env(monkeypatch, mocker):
-    """Wenn role-spezifisches env fehlt, greift BEWERBER_LLM_MODEL."""
-    monkeypatch.delenv("BEWERBER_SCORING_MODEL", raising=False)
-    monkeypatch.delenv("BEWERBER_GENERATION_MODEL", raising=False)
-    monkeypatch.setenv("BEWERBER_LLM_MODEL", "gpt-5.1")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")
-    monkeypatch.delenv("OPENAI_API_KEY_FALLBACK", raising=False)
+def test_openai_provider_skipped_when_no_api_key(monkeypatch, mocker):
+    """Ohne OPENAI_API_KEY -> kein OpenAI-Provider in der Chain (statt Crash)."""
+    _clean_env(monkeypatch)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIz-fake")
+    mocker.patch("bewerber.shared.llm.OpenAI")
+    fake_gemini = mocker.patch("bewerber.shared.llm.GeminiProvider")
+    fake_gemini.return_value.model = "gemini-2.0-flash-exp"
+    fake_gemini.return_value.name = "gemini:gemini-2.0-flash-exp"
+
+    client = LLMClient.for_scoring()
+    # Only Gemini in the chain
+    assert all("openai" not in p.name for p in client.providers)
+    assert len(client.providers) == 1
+
+
+def test_gemini_provider_skipped_when_no_google_key(monkeypatch, mocker):
+    """Ohne GOOGLE_API_KEY -> kein Gemini-Provider (auch wenn in Order)."""
+    _clean_env(monkeypatch)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     mocker.patch("bewerber.shared.llm.OpenAI")
+    mocker.patch("bewerber.shared.llm.GeminiProvider")
 
-    assert LLMClient.for_scoring().model == "gpt-5.1"
-    assert LLMClient.for_generation().model == "gpt-5.1"
-
-
-def test_role_env_falls_back_to_default_when_nothing_set(monkeypatch, mocker):
-    monkeypatch.delenv("BEWERBER_SCORING_MODEL", raising=False)
-    monkeypatch.delenv("BEWERBER_GENERATION_MODEL", raising=False)
-    monkeypatch.delenv("BEWERBER_LLM_MODEL", raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")
-    monkeypatch.delenv("OPENAI_API_KEY_FALLBACK", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    mocker.patch("bewerber.shared.llm.OpenAI")
-
-    assert LLMClient.for_scoring().model == LLMClient.DEFAULT_MODEL
-    assert LLMClient.for_generation().model == LLMClient.DEFAULT_MODEL
-
-
-def test_role_env_overrides_legacy_llm_model_env(monkeypatch, mocker):
-    """Role-spezifisches env hat Vorrang vor BEWERBER_LLM_MODEL."""
-    monkeypatch.setenv("BEWERBER_LLM_MODEL", "gpt-5.1")
-    monkeypatch.setenv("BEWERBER_SCORING_MODEL", "gpt-5.1-mini")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")
-    monkeypatch.delenv("OPENAI_API_KEY_FALLBACK", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    mocker.patch("bewerber.shared.llm.OpenAI")
-
-    assert LLMClient.for_scoring().model == "gpt-5.1-mini"
-    # Generation faellt auf LLM_MODEL zurueck
-    assert LLMClient.for_generation().model == "gpt-5.1"
+    client = LLMClient.for_scoring()
+    # Only OpenAI primary
+    assert len(client.providers) == 1
+    assert client.providers[0].name.startswith("openai:")
 
 
 def test_chain_includes_gemini_when_google_key_set(monkeypatch, mocker):

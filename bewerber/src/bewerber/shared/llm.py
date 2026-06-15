@@ -189,23 +189,32 @@ class GeminiProvider(_Provider):
 class LLMClient:
     """Multi-provider LLM client with quota-fallback + transient retry.
 
-    Two role-specific factory methods (`for_scoring`, `for_generation`) pick
-    the model from a role-aware env-resolution chain:
+    Two role-specific factory methods (`for_scoring`, `for_generation`) build
+    the Provider-Chain aus drei Konfigurations-Achsen, jeweils PRO ROLE:
 
-      BEWERBER_SCORING_MODEL  ->  BEWERBER_LLM_MODEL  ->  DEFAULT_MODEL
-      BEWERBER_GENERATION_MODEL -> BEWERBER_LLM_MODEL -> DEFAULT_MODEL
+      1. BEWERBER_<ROLE>_PROVIDER_ORDER   - z.B. "gemini,openai" oder "openai,gemini"
+                                            Default: "openai,gemini"
+      2. BEWERBER_<ROLE>_OPENAI_MODEL     - Model fuer alle OpenAI-Provider in
+                                            der Kette (primary + fallback key).
+                                            Resolution: ROLE-spez -> BEWERBER_LLM_MODEL
+                                                       -> DEFAULT_MODEL
+      3. BEWERBER_<ROLE>_GEMINI_MODEL     - Model fuer den Gemini-Provider.
+                                            Resolution: ROLE-spez -> BEWERBER_GEMINI_MODEL
+                                                       -> DEFAULT_GEMINI_MODEL
 
-    Scoring (Klassifikation, hohes Volumen) profitiert von gpt-5.1-mini.
-    Generation (Anschreiben/Lebenslauf-Bullets, kreativ + faktentreu)
-    moechte typischerweise gpt-5.1 oder gleichwertig.
+    Provider-Konstruktion ist resilient: Provider, deren Voraussetzungen
+    fehlen (kein Key, kein installiertes Package), werden uebersprungen und
+    geloggt, statt einen Crash zu provozieren.
+
+    Damit ist der Anwendungsfall sauber abgebildet: Scoring kann primaer
+    ueber Gemini laufen (gratis), Generation primaer ueber OpenAI (Qualitaet),
+    jeweils mit dem jeweils ANDEREN Provider als Notnagel.
     """
 
     DEFAULT_MODEL = "gpt-5.1-mini"
     DEFAULT_GEMINI_MODEL = "gemini-2.0-flash-exp"
+    DEFAULT_PROVIDER_ORDER = "openai,gemini"
     RETRY_DELAY_S = 1.5
-
-    SCORING_MODEL_ENV = "BEWERBER_SCORING_MODEL"
-    GENERATION_MODEL_ENV = "BEWERBER_GENERATION_MODEL"
 
     def __init__(
         self,
@@ -215,7 +224,9 @@ class LLMClient:
     ) -> None:
         if providers is not None:
             self.providers = list(providers)
-            self.model = providers[0].model if providers else (model or self.DEFAULT_MODEL)
+            self.model = (
+                providers[0].model if providers else (model or self.DEFAULT_MODEL)
+            )
             return
 
         primary_model = model or os.environ.get("BEWERBER_LLM_MODEL", self.DEFAULT_MODEL)
@@ -230,28 +241,88 @@ class LLMClient:
 
     # ------------------------------------------------------------------
     # Role-specific factories: scoring (cheap, high-volume) vs. generation
-    # (quality-sensitive, low-volume). Resolution chain falls back through
-    # BEWERBER_LLM_MODEL -> DEFAULT_MODEL so old configs keep working.
+    # (quality-sensitive, low-volume). Each provider in the chain bekommt
+    # seinen EIGENEN Model-Namen - der Fragility-Bug, dass OpenAI mit einem
+    # Gemini-Model-Namen aufgerufen wird, ist damit ausgeschlossen.
     # ------------------------------------------------------------------
 
     @classmethod
     def for_scoring(cls) -> "LLMClient":
-        return cls(model=cls._resolve_model(cls.SCORING_MODEL_ENV))
+        return cls(providers=cls._build_role_providers("SCORING"))
 
     @classmethod
     def for_generation(cls) -> "LLMClient":
-        return cls(model=cls._resolve_model(cls.GENERATION_MODEL_ENV))
+        return cls(providers=cls._build_role_providers("GENERATION"))
 
     @classmethod
-    def _resolve_model(cls, role_env: str) -> str:
-        return (
-            os.environ.get(role_env)
+    def _build_role_providers(cls, role: str) -> list[_Provider]:
+        """Build the chain for SCORING or GENERATION based on env config."""
+        order_str = (
+            os.environ.get(f"BEWERBER_{role}_PROVIDER_ORDER")
+            or cls.DEFAULT_PROVIDER_ORDER
+        )
+        order = [p.strip().lower() for p in order_str.split(",") if p.strip()]
+
+        openai_model = (
+            os.environ.get(f"BEWERBER_{role}_OPENAI_MODEL")
             or os.environ.get("BEWERBER_LLM_MODEL")
             or cls.DEFAULT_MODEL
         )
+        gemini_model = (
+            os.environ.get(f"BEWERBER_{role}_GEMINI_MODEL")
+            or os.environ.get("BEWERBER_GEMINI_MODEL")
+            or cls.DEFAULT_GEMINI_MODEL
+        )
+
+        providers: list[_Provider] = []
+        for name in order:
+            if name == "openai":
+                providers.extend(cls._build_openai_providers(openai_model))
+            elif name == "gemini":
+                providers.extend(cls._build_gemini_providers(gemini_model))
+            else:
+                log.warning(
+                    "[LLM] Unbekannter Provider %r in BEWERBER_%s_PROVIDER_ORDER - uebersprungen",
+                    name, role,
+                )
+        if not providers:
+            log.warning(
+                "[LLM] Kein einziger Provider fuer Rolle %s verfuegbar "
+                "(weder OPENAI_API_KEY noch GOOGLE_API_KEY gesetzt?)",
+                role,
+            )
+        return providers
+
+    @staticmethod
+    def _build_openai_providers(model: str) -> list[_Provider]:
+        """OpenAI primary + optional fallback key, beide mit dem GLEICHEN Model."""
+        out: list[_Provider] = []
+        if os.environ.get("OPENAI_API_KEY"):
+            out.append(OpenAIProvider(model=model))
+        fb = os.environ.get("OPENAI_API_KEY_FALLBACK")
+        if fb:
+            out.append(OpenAIProvider(api_key=fb, model=model))
+        return out
+
+    @staticmethod
+    def _build_gemini_providers(model: str) -> list[_Provider]:
+        """Gemini-Provider nur, wenn GOOGLE_API_KEY gesetzt + Paket installiert."""
+        if not os.environ.get("GOOGLE_API_KEY"):
+            return []
+        try:
+            return [GeminiProvider(model=model)]
+        except ImportError:
+            log.warning("[LLM] google-genai nicht installiert - Gemini-Provider uebersprungen")
+            return []
 
     @staticmethod
     def _build_default_chain(primary_model: str) -> list[_Provider]:
+        """Legacy chain used by `LLMClient()` no-arg construction.
+
+        Behaeltdas alte Verhalten: dasselbe Model fuer alle Provider. Wird nur
+        von Tests / direkten Konstruktor-Aufrufen genutzt. Neue Code-Pfade
+        sollten `for_scoring()` / `for_generation()` nehmen.
+        """
         chain: list[_Provider] = [OpenAIProvider(model=primary_model)]
         if os.environ.get("OPENAI_API_KEY_FALLBACK"):
             chain.append(OpenAIProvider(
