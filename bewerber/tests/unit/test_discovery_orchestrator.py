@@ -93,6 +93,53 @@ def test_discover_isolates_board_failures(tmp_path, mocker, monkeypatch):
     assert "rate-limited" in state.scrape_errors["linkedin"].last_error
 
 
+def test_discover_keeps_jobs_no_longer_in_listing(mocker, monkeypatch):
+    """Jobs already in state must persist across discovery runs even if the
+    scraper no longer returns them (posting expired on Arbeitsagentur).
+    The user's status / notes / tailored_dir must be preserved."""
+    from bewerber.shared.state_schema import TrackedJob
+    state = BewerberState()
+    old_job = TrackedJob(
+        raw=_job("arbeitsagentur", "expired-1", desc="old"),
+        scoring=Scoring(fit_score=8, begruendung="x", matched_skills=[],
+                       missing_skills=[], red_flags=[], verbessern_in_anschreiben=[]),
+        status=JobStatus.APPLIED,
+        application_link="https://applied.example",
+        notes="Recruiter angerufen",
+        tailored_dir="/some/path",
+    )
+    state.jobs["arbeitsagentur-expired-1"] = old_job
+
+    # New scrape returns a DIFFERENT job; the expired one is absent
+    adapter = mocker.Mock()
+    adapter.name = "arbeitsagentur"
+    adapter.search.return_value = [_job("arbeitsagentur", "new-2")]
+    monkeypatch.setattr(
+        "bewerber.discovery.orchestrator.scraper_registry",
+        {"arbeitsagentur": adapter},
+    )
+    mocker.patch("bewerber.discovery.orchestrator.enrich_job", side_effect=lambda j: j)
+    mocker.patch("bewerber.discovery.orchestrator.score_job", return_value=Scoring(
+        fit_score=6, begruendung="x", matched_skills=[],
+        missing_skills=[], red_flags=[], verbessern_in_anschreiben=[],
+    ))
+
+    config = SearchesConfig(searches=[
+        SearchEntry(name="X", keywords=["KI"], boards=["arbeitsagentur"]),
+    ])
+    discover(config, state=state, master_yaml_text="m", llm=mocker.Mock())
+
+    # Old job is still there with status + curated fields intact
+    assert "arbeitsagentur-expired-1" in state.jobs
+    kept = state.jobs["arbeitsagentur-expired-1"]
+    assert kept.status == JobStatus.APPLIED
+    assert kept.notes == "Recruiter angerufen"
+    assert kept.application_link == "https://applied.example"
+    assert kept.tailored_dir == "/some/path"
+    # New job also stored
+    assert "arbeitsagentur-new-2" in state.jobs
+
+
 def test_discover_skips_rescoring_when_description_hash_unchanged(mocker, monkeypatch):
     """If a job comes back from scrape with same description_hash, do not re-score."""
     pre_existing = _job("arbeitsagentur", "1", desc="A")

@@ -69,6 +69,22 @@ tr.expanded + tr.detail { display: table-row; }
 }
 .cmd-box.visible { display: block; }
 .copy-toast { display: inline-block; color: #1a7a1a; font-size: 12px; font-weight: 600; margin-left: 8px; }
+.applied-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 4px 12px 4px 0; font-weight: 600; cursor: pointer; }
+.applied-toggle input { width: 18px; height: 18px; cursor: pointer; }
+.folder-btn {
+  display: inline-block; margin: 4px 8px 4px 0;
+  padding: 6px 12px; border: 1px solid #888;
+  background: white; color: #1a3a5c; border-radius: 4px;
+  font-size: 13px; cursor: pointer; font-weight: 600;
+  text-decoration: none;
+}
+.folder-btn:hover { background: #f4f6f8; }
+.api-warn { color: #aa5a00; font-size: 11px; margin-left: 8px; }
+.applied-link-input {
+  margin-left: 8px; padding: 4px 6px;
+  border: 1px solid #c0c8d0; border-radius: 3px;
+  font-size: 12px; min-width: 220px;
+}
 </style>
 </head>
 <body>
@@ -207,8 +223,21 @@ function detailHtml(r) {
   const scoring = r.scoring || {};
   const linkCv = r.tailored_dir ? `<a href="file://${r.tailored_dir}/lebenslauf.pdf">Lebenslauf PDF</a>` : "";
   const linkAns = r.tailored_dir ? `<a href="file://${r.tailored_dir}/anschreiben.pdf">Anschreiben PDF</a>` : "";
+  const folderBtn = r.tailored_dir
+    ? `<button class="folder-btn" onclick="openFolder('${escapeAttr(r.tailored_dir)}', event)">📂 Bewerbungsordner</button>`
+    : "";
   const linkPost = r.raw.url ? `<a href="${escapeAttr(r.raw.url)}" target="_blank">Original-Posting</a>` : "";
   const linkApp = r.application_link ? `<a href="${escapeAttr(r.application_link)}" target="_blank">Eingereichte Bewerbung</a>` : "";
+  const isApplied = r.status === "applied" || r.status === "interview" || r.status === "offer";
+  const appliedToggle = `<label class="applied-toggle" onclick="event.stopPropagation()">
+    <input type="checkbox" id="applied-${r.jid}" ${isApplied ? "checked" : ""}
+           onchange="onAppliedToggle('${r.jid}', this, event)">
+    Beworben
+    <input type="url" class="applied-link-input" id="applied-link-${r.jid}"
+           placeholder="optional: Link zur eingereichten Bewerbung"
+           value="${escapeAttr(r.application_link || '')}"
+           ${isApplied ? '' : 'style="display:none;"'}>
+  </label>`;
   const matchedSk = (scoring.matched_skills || []).map(s => `<code>${escapeHtml(s)}</code>`).join(", ");
   const missingSk = (scoring.missing_skills || []).map(s => `<code>${escapeHtml(s)}</code>`).join(", ");
   const flags = (scoring.red_flags || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
@@ -233,7 +262,8 @@ function detailHtml(r) {
        </div>
        <pre class="cmd-box" id="cmd-${r.jid}"></pre>`;
   return `
-    <div class="links">${linkPost} ${linkCv} ${linkAns} ${linkApp}</div>
+    <div class="links">${linkPost} ${linkCv} ${linkAns} ${linkApp} ${folderBtn}</div>
+    <div style="margin-top:6px;">${appliedToggle}</div>
     <div style="margin-top:6px;">${tailorBtn}</div>
     <h4>Scoring</h4>
     <div><b>Fit:</b> ${scoring.fit_score || "—"} — ${escapeHtml(scoring.begruendung || "")}</div>
@@ -253,6 +283,59 @@ function escapeHtml(s) {
 function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
 
 const WORKSPACE = {{ workspace_path | tojson }};
+const IS_HTTP = window.location.protocol.startsWith("http");
+
+async function apiCall(path, body) {
+  if (!IS_HTTP) {
+    alert("Diese Aktion braucht den HTTP-Server. Starte den Server mit:\n\n  bewerber serve\n\nund öffne dann http://127.0.0.1:<port>/");
+    throw new Error("Static file:// mode - API not available");
+  }
+  const resp = await fetch(path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({error: resp.statusText}));
+    throw new Error(err.error || "API call failed");
+  }
+  return resp.json();
+}
+
+async function onAppliedToggle(jid, checkbox, evt) {
+  if (evt) evt.stopPropagation();
+  const linkInput = document.getElementById("applied-link-" + jid);
+  try {
+    const newStatus = checkbox.checked ? "applied" : "discovered";
+    const payload = {job_id: jid, status: newStatus};
+    if (checkbox.checked && linkInput && linkInput.value.trim()) {
+      payload.application_link = linkInput.value.trim();
+    }
+    await apiCall("/api/mark", payload);
+    // Reload state into STATE so subsequent renders are correct
+    if (linkInput) linkInput.style.display = checkbox.checked ? "inline-block" : "none";
+    // Refresh the row by re-fetching state
+    location.reload();
+  } catch (e) {
+    checkbox.checked = !checkbox.checked;  // revert
+    console.error(e);
+  }
+}
+
+async function openFolder(path, evt) {
+  if (evt) evt.stopPropagation();
+  if (!IS_HTTP) {
+    // Fallback for file:// mode: try direct navigation (works in some browsers/OSes)
+    window.location.href = `file://${path}`;
+    return;
+  }
+  try {
+    await apiCall("/api/open-folder", {path});
+  } catch (e) {
+    console.error("Ordner konnte nicht geöffnet werden:", e);
+    alert("Ordner konnte nicht geöffnet werden: " + e.message);
+  }
+}
 
 function getFormValue(jid, field) {
   const el = document.getElementById(`${field}-${jid}`);

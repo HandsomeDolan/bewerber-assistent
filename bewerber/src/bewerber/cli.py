@@ -288,14 +288,35 @@ def cmd_regen() -> None:
 
 
 @main.command("serve")
-def cmd_serve() -> None:
-    """Rendert dashboard.html und öffnet sie im Default-Browser."""
+@click.option("--port", type=int, default=0, help="HTTP-Port (default: ephemeral).")
+@click.option("--no-browser", is_flag=True, help="Browser nicht automatisch öffnen.")
+def cmd_serve(port: int, no_browser: bool) -> None:
+    """Startet lokalen HTTP-Server für interaktives Dashboard.
+
+    Im Gegensatz zum file:// Mode kann das Dashboard hier echte Statusänderungen
+    schreiben (Beworben-Checkbox, Notizen, Ordner öffnen).
+    Beenden mit Ctrl+C.
+    """
+    from bewerber.dashboard.server import serve as start_server
     paths = Paths()
+    # Also write a static dashboard.html so the file is up-to-date for offline use.
     state = load_state(paths.state_json)
-    html = render_dashboard(state)
-    paths.dashboard_html.write_text(html, encoding="utf-8")
-    webbrowser.open(f"file://{paths.dashboard_html}")
-    click.echo(f"✔ {paths.dashboard_html} geöffnet")
+    paths.dashboard_html.write_text(render_dashboard(state), encoding="utf-8")
+
+    server = start_server(paths=paths, port=port)
+    actual_port = server.server_address[1]
+    url = f"http://127.0.0.1:{actual_port}/"
+    click.echo(f"✔ Dashboard läuft auf {url}")
+    click.echo(f"  Statisches Backup: {paths.dashboard_html}")
+    click.echo("  Ctrl+C zum Beenden.")
+    if not no_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        click.echo("\nServer gestoppt.")
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":
