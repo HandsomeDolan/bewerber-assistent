@@ -1,3 +1,5 @@
+import logging
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -7,13 +9,61 @@ from bewerber.shared.state_schema import (
     BewerberState, RawJob, Scoring, ScrapeError, TrackedJob,
 )
 from bewerber.discovery.scrapers import scraper_registry
-from bewerber.discovery.searches import SearchesConfig
+from bewerber.discovery.searches import SearchEntry, SearchesConfig
 from bewerber.discovery.enrich import enrich_job
 from bewerber.discovery.scoring import score_job
+
+log = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _build_exclude_pattern(keywords: list[str]) -> Optional[re.Pattern]:
+    """Compile a case-insensitive word-boundary regex matching any keyword.
+
+    Returns None when the list is empty (caller skips filtering).
+    """
+    cleaned = [kw.strip() for kw in keywords if kw and kw.strip()]
+    if not cleaned:
+        return None
+    pattern = r"\b(?:" + "|".join(re.escape(kw) for kw in cleaned) + r")\b"
+    return re.compile(pattern, re.IGNORECASE)
+
+
+def _apply_excludes(
+    raw_jobs: list[RawJob],
+    *,
+    pattern: Optional[re.Pattern],
+    board: str,
+    search_name: str,
+) -> list[RawJob]:
+    """Drop jobs whose title or company matches any exclude keyword.
+
+    Matched before scoring -> saves LLM tokens. Description is intentionally
+    not matched: too prone to false positives ("auch ohne SPS-Erfahrung").
+    """
+    if pattern is None:
+        return raw_jobs
+    kept: list[RawJob] = []
+    dropped = 0
+    for raw in raw_jobs:
+        haystack = f"{raw.title} {raw.company}"
+        if pattern.search(haystack):
+            dropped += 1
+            continue
+        kept.append(raw)
+    if dropped:
+        log.info(
+            "[discover] %s/%s: %d/%d jobs ausgeschlossen via exclude_keywords",
+            board, search_name, dropped, len(raw_jobs),
+        )
+    return kept
+
+
+def _excludes_for_search(config: SearchesConfig, search: SearchEntry) -> list[str]:
+    return list(config.defaults.exclude_keywords) + list(search.exclude_keywords)
 
 
 def discover(
@@ -31,6 +81,7 @@ def discover(
     state.last_discovery_run = _now_iso()
 
     for search in config.searches:
+        exclude_pattern = _build_exclude_pattern(_excludes_for_search(config, search))
         for board in search.boards:
             adapter = scraper_registry.get(board)
             if adapter is None:
@@ -53,6 +104,13 @@ def discover(
                 continue
             # Clear prior error for this board on success
             state.scrape_errors.pop(board, None)
+
+            raw_jobs = _apply_excludes(
+                raw_jobs,
+                pattern=exclude_pattern,
+                board=board,
+                search_name=search.name,
+            )
 
             for raw in raw_jobs:
                 _process_one(raw, state=state, master_yaml_text=master_yaml_text, llm=llm)

@@ -140,6 +140,171 @@ def test_discover_keeps_jobs_no_longer_in_listing(mocker, monkeypatch):
     assert "arbeitsagentur-new-2" in state.jobs
 
 
+def test_global_exclude_keywords_filter_matching_titles(mocker, monkeypatch):
+    """defaults.exclude_keywords=['SPS'] -> SPS-titled jobs dropped before scoring."""
+    sps_job = _job("arbeitsagentur", "1")
+    sps_job = sps_job.model_copy(update={"title": "SPS-Programmierer (m/w/d)"})
+    ai_job = _job("arbeitsagentur", "2")
+    ai_job = ai_job.model_copy(update={"title": "KI Manager"})
+
+    adapter = mocker.Mock()
+    adapter.name = "arbeitsagentur"
+    adapter.search.return_value = [sps_job, ai_job]
+    monkeypatch.setattr(
+        "bewerber.discovery.orchestrator.scraper_registry",
+        {"arbeitsagentur": adapter},
+    )
+    mocker.patch("bewerber.discovery.orchestrator.enrich_job", side_effect=lambda j: j)
+    score = mocker.patch("bewerber.discovery.orchestrator.score_job", return_value=Scoring(
+        fit_score=7, begruendung="ok", matched_skills=[], missing_skills=[],
+        red_flags=[], verbessern_in_anschreiben=[],
+    ))
+
+    config = SearchesConfig(
+        defaults=SearchDefaults(locations=["Leipzig"], exclude_keywords=["SPS"]),
+        searches=[SearchEntry(name="A", keywords=["KI"], boards=["arbeitsagentur"])],
+    )
+    state = BewerberState()
+    discover(config, state=state, master_yaml_text="m", llm=mocker.Mock())
+
+    assert "arbeitsagentur-1" not in state.jobs  # SPS dropped
+    assert "arbeitsagentur-2" in state.jobs
+    assert score.call_count == 1  # only the KI job got scored (LLM-tokens saved)
+
+
+def test_per_search_excludes_combine_with_global(mocker, monkeypatch):
+    """Per-search exclude_keywords vereinigt sich mit globaler Liste."""
+    sps_job = _job("arbeitsagentur", "1").model_copy(update={"title": "SPS Engineer"})
+    vertrieb_job = _job("arbeitsagentur", "2").model_copy(update={"title": "Vertrieb KI"})
+    keep_job = _job("arbeitsagentur", "3").model_copy(update={"title": "KI Consultant"})
+
+    adapter = mocker.Mock()
+    adapter.name = "arbeitsagentur"
+    adapter.search.return_value = [sps_job, vertrieb_job, keep_job]
+    monkeypatch.setattr(
+        "bewerber.discovery.orchestrator.scraper_registry",
+        {"arbeitsagentur": adapter},
+    )
+    mocker.patch("bewerber.discovery.orchestrator.enrich_job", side_effect=lambda j: j)
+    mocker.patch("bewerber.discovery.orchestrator.score_job", return_value=Scoring(
+        fit_score=7, begruendung="x", matched_skills=[], missing_skills=[],
+        red_flags=[], verbessern_in_anschreiben=[],
+    ))
+
+    config = SearchesConfig(
+        defaults=SearchDefaults(exclude_keywords=["SPS"]),
+        searches=[SearchEntry(
+            name="A", keywords=["KI"], boards=["arbeitsagentur"],
+            exclude_keywords=["Vertrieb"],
+        )],
+    )
+    state = BewerberState()
+    discover(config, state=state, master_yaml_text="m", llm=mocker.Mock())
+
+    assert set(state.jobs.keys()) == {"arbeitsagentur-3"}
+
+
+def test_exclude_keywords_case_insensitive(mocker, monkeypatch):
+    """'sps' lowercase im Filter matched 'SPS' im Titel."""
+    j = _job("arbeitsagentur", "1").model_copy(update={"title": "SPS-Techniker"})
+    adapter = mocker.Mock()
+    adapter.name = "arbeitsagentur"
+    adapter.search.return_value = [j]
+    monkeypatch.setattr(
+        "bewerber.discovery.orchestrator.scraper_registry",
+        {"arbeitsagentur": adapter},
+    )
+    mocker.patch("bewerber.discovery.orchestrator.enrich_job", side_effect=lambda j: j)
+    mocker.patch("bewerber.discovery.orchestrator.score_job")
+
+    config = SearchesConfig(
+        defaults=SearchDefaults(exclude_keywords=["sps"]),
+        searches=[SearchEntry(name="A", keywords=["KI"], boards=["arbeitsagentur"])],
+    )
+    state = BewerberState()
+    discover(config, state=state, master_yaml_text="m", llm=mocker.Mock())
+
+    assert state.jobs == {}
+
+
+def test_exclude_keywords_word_boundary_no_substring_false_positive(mocker, monkeypatch):
+    """Filter 'PLS' darf NICHT 'PLSQL Developer' droppen (Wortgrenze)."""
+    plsql = _job("arbeitsagentur", "1").model_copy(update={"title": "PLSQL Developer (m/w/d)"})
+    adapter = mocker.Mock()
+    adapter.name = "arbeitsagentur"
+    adapter.search.return_value = [plsql]
+    monkeypatch.setattr(
+        "bewerber.discovery.orchestrator.scraper_registry",
+        {"arbeitsagentur": adapter},
+    )
+    mocker.patch("bewerber.discovery.orchestrator.enrich_job", side_effect=lambda j: j)
+    mocker.patch("bewerber.discovery.orchestrator.score_job", return_value=Scoring(
+        fit_score=7, begruendung="x", matched_skills=[], missing_skills=[],
+        red_flags=[], verbessern_in_anschreiben=[],
+    ))
+
+    config = SearchesConfig(
+        defaults=SearchDefaults(exclude_keywords=["PLS"]),
+        searches=[SearchEntry(name="A", keywords=["x"], boards=["arbeitsagentur"])],
+    )
+    state = BewerberState()
+    discover(config, state=state, master_yaml_text="m", llm=mocker.Mock())
+
+    # PLSQL bleibt drin - der Filter darf nicht innerhalb eines Worts matchen
+    assert "arbeitsagentur-1" in state.jobs
+
+
+def test_exclude_keywords_matches_company_name(mocker, monkeypatch):
+    """Filter greift auch auf Firma, nicht nur Titel."""
+    j = _job("arbeitsagentur", "1").model_copy(update={
+        "title": "Senior Consultant", "company": "Müller SPS GmbH",
+    })
+    adapter = mocker.Mock()
+    adapter.name = "arbeitsagentur"
+    adapter.search.return_value = [j]
+    monkeypatch.setattr(
+        "bewerber.discovery.orchestrator.scraper_registry",
+        {"arbeitsagentur": adapter},
+    )
+    mocker.patch("bewerber.discovery.orchestrator.enrich_job", side_effect=lambda j: j)
+    mocker.patch("bewerber.discovery.orchestrator.score_job")
+
+    config = SearchesConfig(
+        defaults=SearchDefaults(exclude_keywords=["SPS"]),
+        searches=[SearchEntry(name="A", keywords=["x"], boards=["arbeitsagentur"])],
+    )
+    state = BewerberState()
+    discover(config, state=state, master_yaml_text="m", llm=mocker.Mock())
+
+    assert state.jobs == {}
+
+
+def test_no_exclude_keywords_no_filtering(mocker, monkeypatch):
+    """Leere exclude_keywords -> Alle Jobs durchgereicht."""
+    j1 = _job("arbeitsagentur", "1").model_copy(update={"title": "SPS Engineer"})
+    j2 = _job("arbeitsagentur", "2").model_copy(update={"title": "KI Manager"})
+    adapter = mocker.Mock()
+    adapter.name = "arbeitsagentur"
+    adapter.search.return_value = [j1, j2]
+    monkeypatch.setattr(
+        "bewerber.discovery.orchestrator.scraper_registry",
+        {"arbeitsagentur": adapter},
+    )
+    mocker.patch("bewerber.discovery.orchestrator.enrich_job", side_effect=lambda j: j)
+    mocker.patch("bewerber.discovery.orchestrator.score_job", return_value=Scoring(
+        fit_score=7, begruendung="x", matched_skills=[], missing_skills=[],
+        red_flags=[], verbessern_in_anschreiben=[],
+    ))
+
+    config = SearchesConfig(searches=[
+        SearchEntry(name="A", keywords=["KI"], boards=["arbeitsagentur"]),
+    ])
+    state = BewerberState()
+    discover(config, state=state, master_yaml_text="m", llm=mocker.Mock())
+
+    assert set(state.jobs.keys()) == {"arbeitsagentur-1", "arbeitsagentur-2"}
+
+
 def test_discover_skips_rescoring_when_description_hash_unchanged(mocker, monkeypatch):
     """If a job comes back from scrape with same description_hash, do not re-score."""
     pre_existing = _job("arbeitsagentur", "1", desc="A")

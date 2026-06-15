@@ -4,6 +4,13 @@ defaults:
   date_posted_max_days: 14
   min_fit_score: 6   # nur informativ - im Dashboard standardmäßig ausgeblendet
 
+  # Globaler Filter: matched (case-insensitive, Wortgrenze) gegen Titel + Firma
+  # JEDES Suchresultats. Job wird VOR dem Scoring rausgeworfen (spart LLM-Tokens).
+  # Wortgrenzen: "PLS" filtert "PLS Engineer" - aber NICHT "PLSQL Developer".
+  exclude_keywords:
+    - "SPS"
+    - "PLS"
+
 searches:
   - name: "KI Manager"
     keywords:
@@ -11,6 +18,9 @@ searches:
       - "AI Product Manager"
       - "KI Produktmanager"
     boards: [arbeitsagentur, linkedin, indeed]
+    # Zusatz-Filter nur fuer diese Suche; vereinigt sich mit defaults.exclude_keywords.
+    exclude_keywords:
+      - "Vertrieb"
 
   - name: "Lead Projektmanager"
     keywords:

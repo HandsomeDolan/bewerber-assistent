@@ -12,6 +12,10 @@ class SearchDefaults(BaseModel):
     locations: list[str] = Field(default_factory=list)
     date_posted_max_days: int = 14
     min_fit_score: int = 6
+    # Globaler Ausschluss: matched (case-insensitive, Wortgrenze) gegen Titel + Firma
+    # JEDES Suchresultats. Beispiel: ["SPS", "PLS"] → SPS-Programmierer + PLS-Engineer
+    # werden vor dem Scoring rausgeworfen (spart LLM-Tokens).
+    exclude_keywords: list[str] = Field(default_factory=list)
 
 
 class SearchEntry(BaseModel):
@@ -19,6 +23,8 @@ class SearchEntry(BaseModel):
     name: str
     keywords: list[str]
     boards: list[VALID_BOARDS]
+    # Zusaetzlich zur globalen defaults.exclude_keywords-Liste. Vereinigung.
+    exclude_keywords: list[str] = Field(default_factory=list)
 
 
 class SearchesConfig(BaseModel):
