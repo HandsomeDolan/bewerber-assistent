@@ -23,6 +23,16 @@ def test_project_requires_id_and_titel():
         Project(titel="x")  # id missing
 
 
+def test_project_arbeitgeber_is_optional_and_defaults_none():
+    p = Project(id="x", titel="y")
+    assert p.arbeitgeber is None
+
+
+def test_project_arbeitgeber_accepts_string():
+    p = Project(id="x", titel="y", arbeitgeber="IC Music and Apparel GmbH")
+    assert p.arbeitgeber == "IC Music and Apparel GmbH"
+
+
 def test_berufserfahrung_bis_optional():
     job = Berufserfahrung(
         position="PM",

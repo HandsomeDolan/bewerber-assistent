@@ -54,6 +54,11 @@ class Project(BaseModel):
     skills_methodisch: list[str] = Field(default_factory=list)
     erfolge: list[str] = Field(default_factory=list)
     sichtbar_in_lebenslauf: bool = True
+    # Optionaler Hard-Link an eine Berufserfahrung. Wert sollte EXAKT mit
+    # `Berufserfahrung.firma` matchen. Wenn gesetzt, weist der customize_resume
+    # -LLM dieses Projekt zwingend dieser Stelle zu (kein Inferenz-Rauschen).
+    # Wenn None: LLM darf inferieren (Default-Verhalten).
+    arbeitgeber: Optional[str] = None
 
 
 class Zertifikat(BaseModel):

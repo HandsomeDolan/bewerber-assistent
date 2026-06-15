@@ -85,6 +85,27 @@ def test_customize_filters_hidden_projects_from_prompt(mocker):
     assert "2-y" not in user_prompt
 
 
+def test_customize_passes_arbeitgeber_field_into_prompt(mocker):
+    """Wenn ein Projekt einen `arbeitgeber` hat, muss dieser im Master-YAML im
+    User-Prompt landen, damit die LLM die Zuordnung honorieren kann."""
+    fake_llm = mocker.Mock()
+    fake_llm.structured.return_value = _stub_response()
+    profile = _master()
+    # Tag das sichtbare Projekt mit einem expliziten Arbeitgeber
+    profile.projekte[0].arbeitgeber = "Acme"
+    customize_resume(profile, "job text", llm=fake_llm)
+    user_prompt = fake_llm.structured.call_args.kwargs["user"]
+    assert "arbeitgeber: Acme" in user_prompt
+
+
+def test_customize_system_prompt_documents_arbeitgeber_rule(mocker):
+    """Die System-Anweisung muss die Hard-Constraint erwaehnen, damit die LLM
+    die `arbeitgeber`-Zuordnung nicht ignoriert."""
+    from bewerber.tailoring.customize import CUSTOMIZE_SYSTEM_PROMPT
+    assert "arbeitgeber" in CUSTOMIZE_SYSTEM_PROMPT
+    assert "MÜSSEN" in CUSTOMIZE_SYSTEM_PROMPT or "verbindlich" in CUSTOMIZE_SYSTEM_PROMPT
+
+
 def test_projekterfahrung_block_allows_empty_lists():
     """A theme block may have empty aufgaben/ergebnisse (defensive default)."""
     block = ProjekterfahrungBlock(titel="X")

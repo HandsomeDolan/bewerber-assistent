@@ -25,6 +25,12 @@ A) WERDEGANG (high-level Liste der Stellen)
    Projektdetails.
 
 B) DETAILLIERTE PROJEKTERFAHRUNG (thematisch gruppierte Detailblöcke pro Stelle)
+   ZUORDNUNG VON PROJEKTEN ZU STELLEN:
+   - Master-Projekte mit gesetztem Feld `arbeitgeber` MÜSSEN bei genau dieser Stelle (firma)
+     einsortiert werden. Diese Zuordnung ist verbindlich - du darfst sie unter keinen Umständen
+     einer anderen Stelle zuweisen, auch wenn der Inhalt dort thematisch besser passen würde.
+   - Projekte ohne `arbeitgeber` darfst du anhand von Inhalt, Skills und Zeitraum inferieren.
+
    Pro Stelle bündele die Master-Inhalte zu 3–4 thematischen Blöcken (`projekterfahrung`). Jeder Block hat:
    - `titel`: einen ALLGEMEINEN, THEMATISCHEN Titel, NICHT Projektname/Ordnername. Beispiele:
        * statt "n8n Builder" → "Workflow-Automatisierung mit n8n & LLM-Integration"
