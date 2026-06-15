@@ -67,6 +67,12 @@ tr.expanded + tr.detail { display: table-row; }
 }
 .arbeitsmodell-remote { background: #e6f4ea; color: #1f6d31; border: 1px solid #b8dec3; }
 .arbeitsmodell-hybrid { background: #e8f0fc; color: #1f4e8c; border: 1px solid #b8cee8; }
+
+.notes-cell { max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-style: italic; color: #555; }
+.notes-edit { width: 100%; min-height: 80px; box-sizing: border-box; padding: 8px 10px; border: 1px solid #c0c8d0; border-radius: 4px; font: inherit; font-size: 13px; resize: vertical; margin: 4px 0; }
+.notes-save-btn { font: inherit; font-size: 12px; padding: 3px 10px; border: 1px solid #2266cc; background: #2266cc; color: #fff; border-radius: 3px; cursor: pointer; margin-left: 8px; font-weight: 600; }
+.notes-save-btn:hover { background: #1a55b3; }
+.notes-status { font-size: 12px; margin-left: 8px; font-weight: normal; }
 .tailor-status { font-size: 12px; margin-left: 10px; }
 .action-btn.primary { background: #2266cc; color: #fff; border-color: #2266cc; font-weight: 600; }
 .action-btn.primary:hover:not(:disabled) { background: #1a55b3; }
@@ -189,6 +195,7 @@ tr.expanded + tr.detail { display: table-row; }
     <th data-sort="score">Score</th>
     <th data-sort="status">Status</th>
     <th data-sort="applied_date">Beworben am</th>
+    <th data-sort="notes">Bemerkung</th>
     <th data-sort="company">Firma</th>
     <th data-sort="title">Titel</th>
     <th data-sort="location">Ort</th>
@@ -232,6 +239,7 @@ function applyFilters() {
     if (key === "score") { av = (a.scoring && a.scoring.fit_score) || 0; bv = (b.scoring && b.scoring.fit_score) || 0; }
     else if (key === "posted_date") { av = a.raw.posted_date || ""; bv = b.raw.posted_date || ""; }
     else if (key === "applied_date") { av = appliedDate(a); bv = appliedDate(b); }
+    else if (key === "notes") { av = (a.notes || "").trim().toLowerCase(); bv = (b.notes || "").trim().toLowerCase(); }
     else if (key === "board") { av = a.raw.board; bv = b.raw.board; }
     else if (key === "title" || key === "company" || key === "location") { av = a.raw[key] || ""; bv = b.raw[key] || ""; }
     else { av = a[key] || ""; bv = b[key] || ""; }
@@ -250,6 +258,7 @@ function renderRows(rows) {
       <td class="score score-${score}">${score || "—"}</td>
       <td><span class="status status-${r.status}">${r.status}</span></td>
       <td>${appliedDate(r) || "—"}</td>
+      <td class="notes-cell">${notesPreview(r.notes)}</td>
       <td>${escapeHtml(r.raw.company)}</td>
       <td>${escapeHtml(r.raw.title)}</td>
       <td>${escapeHtml(r.raw.location)}${arbeitsmodellBadge(r.raw.arbeitsmodell)}</td>
@@ -261,7 +270,7 @@ function renderRows(rows) {
 
     const detail = document.createElement("tr");
     detail.className = "detail";
-    detail.innerHTML = `<td colspan="8">${detailHtml(r)}</td>`;
+    detail.innerHTML = `<td colspan="9">${detailHtml(r)}</td>`;
     detail.style.display = "none";
     tbody.appendChild(detail);
   }
@@ -324,7 +333,13 @@ function detailHtml(r) {
     <div><b>Matched Skills:</b> ${matchedSk || '<span class="muted">—</span>'}</div>
     <div><b>Missing Skills:</b> ${missingSk || '<span class="muted">—</span>'}</div>
     ${flags ? `<div><b>Red Flags:</b><ul>${flags}</ul></div>` : ""}
-    ${r.notes ? `<h4>Notizen</h4><pre style="white-space: pre-wrap;">${escapeHtml(r.notes)}</pre>` : ""}
+    <h4>Notizen
+      <button class="notes-save-btn" onclick="saveNotes('${r.jid}', event)">💾 Speichern</button>
+      <span class="notes-status" id="notes-status-${r.jid}"></span>
+    </h4>
+    <textarea class="notes-edit" id="notes-edit-${r.jid}"
+              placeholder="Freitext-Notizen zur Bewerbung (Recruiter-Gespraech, persoenliche Einschaetzung, Reminder, ...)"
+              onclick="event.stopPropagation()">${escapeHtml(r.notes || "")}</textarea>
     <h4>Beschreibung</h4>
     <div style="white-space: pre-wrap; font-size: 13px;">${desc}</div>
   `;
@@ -361,6 +376,49 @@ function buildDescriptionHtml(desc, jid) {
 function arbeitsmodellBadge(value) {
   if (!value) return "";
   return ` <span class="arbeitsmodell-badge arbeitsmodell-${value}">${value}</span>`;
+}
+
+const NOTES_PREVIEW_CHARS = 40;
+function notesPreview(notes) {
+  const trimmed = (notes || "").trim();
+  if (!trimmed) return '<span class="muted">—</span>';
+  // Erste Zeile, dann gekuerzt
+  const firstLine = trimmed.split("\n")[0];
+  const truncated = firstLine.length > NOTES_PREVIEW_CHARS
+    ? firstLine.slice(0, NOTES_PREVIEW_CHARS) + "…"
+    : firstLine;
+  return `<span title="${escapeAttr(trimmed)}">${escapeHtml(truncated)}</span>`;
+}
+
+async function saveNotes(jid, evt) {
+  if (evt) evt.stopPropagation();
+  if (!IS_HTTP) {
+    alert("Notizen speichern geht nur ueber 'bewerber serve' (HTTP).");
+    return;
+  }
+  const textarea = document.getElementById("notes-edit-" + jid);
+  const statusEl = document.getElementById("notes-status-" + jid);
+  if (!textarea) return;
+  statusEl.textContent = "speichere ...";
+  statusEl.style.color = "#444";
+  try {
+    const resp = await fetch("/api/notes-set", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({job_id: jid, notes: textarea.value}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "unbekannter Fehler");
+    statusEl.style.color = "#1a5b2b";
+    statusEl.textContent = "✓ gespeichert";
+    // Inline-State aktualisieren, damit die Tabelle (Spalten-Vorschau) sofort konsistent ist
+    if (STATE.jobs[jid]) STATE.jobs[jid].notes = textarea.value;
+    setTimeout(() => { statusEl.textContent = ""; }, 2500);
+    applyFilters();  // Spalten-Vorschau neu rendern
+  } catch (e) {
+    statusEl.style.color = "#c33";
+    statusEl.textContent = "✗ " + e.message;
+  }
 }
 
 function toggleDesc(jid, evt) {

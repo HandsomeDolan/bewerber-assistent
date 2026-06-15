@@ -448,6 +448,58 @@ def test_tailor_happy_path(running_server, tmp_path, mocker):
     assert inp.posting_text == "job desc"
 
 
+# ---------------------------------------------------------------------------
+# /api/notes-set (full-replace, no timestamp)
+# ---------------------------------------------------------------------------
+
+def test_notes_set_replaces_entire_notes_field(running_server):
+    code, body = _post_json(running_server, "/api/notes-set", {
+        "job_id": "arbeitsagentur-x1",
+        "notes": "Frei-Text\nMehrere Zeilen.",
+    })
+    assert code == 200, body
+    assert body["ok"] is True
+
+    state = load_state(Paths().state_json)
+    assert state.jobs["arbeitsagentur-x1"].notes == "Frei-Text\nMehrere Zeilen."
+
+
+def test_notes_set_overwrites_prior_notes(running_server):
+    # First set
+    _post_json(running_server, "/api/notes-set", {"job_id": "arbeitsagentur-x1", "notes": "alt"})
+    # Then replace
+    code, _ = _post_json(running_server, "/api/notes-set", {"job_id": "arbeitsagentur-x1", "notes": "neu"})
+    assert code == 200
+    assert load_state(Paths().state_json).jobs["arbeitsagentur-x1"].notes == "neu"
+
+
+def test_notes_set_allows_empty_string_to_clear_notes(running_server):
+    """Notes loeschen indem man leeren String sendet."""
+    _post_json(running_server, "/api/notes-set", {"job_id": "arbeitsagentur-x1", "notes": "was"})
+    code, _ = _post_json(running_server, "/api/notes-set", {"job_id": "arbeitsagentur-x1", "notes": ""})
+    assert code == 200
+    assert load_state(Paths().state_json).jobs["arbeitsagentur-x1"].notes == ""
+
+
+def test_notes_set_missing_job_id_returns_400(running_server):
+    code, body = _post_json(running_server, "/api/notes-set", {"notes": "x"})
+    assert code == 400
+
+
+def test_notes_set_unknown_job_returns_404(running_server):
+    code, body = _post_json(running_server, "/api/notes-set", {
+        "job_id": "ghost-9999", "notes": "x",
+    })
+    assert code == 404
+
+
+def test_notes_set_non_string_notes_returns_400(running_server):
+    code, body = _post_json(running_server, "/api/notes-set", {
+        "job_id": "arbeitsagentur-x1", "notes": ["nicht", "string"],
+    })
+    assert code == 400
+
+
 def test_tailor_orchestrator_failure_returns_502(running_server, tmp_path, mocker):
     """If tailor() raises, the endpoint returns 502 with the message."""
     from bewerber.shared.state_schema import Scoring as _Scoring

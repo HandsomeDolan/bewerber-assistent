@@ -20,6 +20,9 @@ Endpoints:
                                updates state.json + status_history, returns {ok: true}
     POST /api/note          -> body {job_id, text}
                                appends a timestamped note, returns {ok: true}
+    POST /api/notes-set     -> body {job_id, notes}
+                               ueberschreibt notes-Feld komplett (freitext),
+                               kein Timestamp. Returns {ok: true}.
     POST /api/open-folder   -> body {path}
                                opens the path in Finder (macOS `open`). Useful because
                                browsers refuse file:// navigation from http://localhost.
@@ -136,6 +139,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_add_posting()
             elif self.path == "/api/tailor":
                 self._handle_tailor()
+            elif self.path == "/api/notes-set":
+                self._handle_notes_set()
             else:
                 self._send_json(404, {"error": "unknown endpoint"})
         except Exception as e:  # noqa: BLE001
@@ -344,6 +349,28 @@ class _Handler(BaseHTTPRequestHandler):
         job.notes = f"{job.notes}\n{entry}".strip() if job.notes else entry
         save_state(self.paths.state_json, state)
         self._send_json(200, {"ok": True, "job_id": job_id})
+
+    def _handle_notes_set(self) -> None:
+        body = self._read_json()
+        job_id = body.get("job_id")
+        if not job_id:
+            self._send_json(400, {"error": "job_id required"})
+            return
+        # Notes ist optional - leerer String erlaubt (= Loeschen)
+        notes = body.get("notes", "")
+        if not isinstance(notes, str):
+            self._send_json(400, {"error": "notes must be a string"})
+            return
+
+        state = load_state(self.paths.state_json)
+        job = state.jobs.get(job_id)
+        if job is None:
+            self._send_json(404, {"error": f"job {job_id!r} not found"})
+            return
+
+        job.notes = notes
+        save_state(self.paths.state_json, state)
+        self._send_json(200, {"ok": True, "job_id": job_id, "length": len(notes)})
 
     def _handle_open_folder(self) -> None:
         body = self._read_json()
