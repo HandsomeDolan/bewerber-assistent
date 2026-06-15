@@ -47,6 +47,10 @@ class Paths:
     def anschreiben_examples(self) -> Path:
         return self.bewerber_dir / "anschreiben_examples"
 
+    @property
+    def anlagen_yaml(self) -> Path:
+        return self.bewerber_dir / "anlagen.yaml"
+
     def project_folders(self) -> list[Path]:
         """Return folders matching `<number> <name>`, sorted by (leading_number, name)."""
         if not self.documents.is_dir():

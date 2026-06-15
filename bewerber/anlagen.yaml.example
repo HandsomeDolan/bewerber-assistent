@@ -1,0 +1,30 @@
+# Zentrale Verwaltung der Anlagen (Zeugnisse, Urkunden), die bei jedem
+# `bewerber tailor`-Lauf automatisch in den neuen Bewerbungsordner kopiert
+# und im Anlagen-Block des Anschreibens aufgelistet werden.
+#
+# Jedes Item hat:
+#   label  - erscheint genau einmal im Anschreiben-Anlagen-Block
+#   files  - 1+ absolute Pfade zu PDFs (oder anderen Dateien); mehrere Dateien
+#            unter einem label sinnvoll, wenn ein Dokument auf mehrere Seiten
+#            verteilt ist (z.B. Technikerzeugnis Seite 1 + 2).
+#
+# Fehlt eine Datei auf der Platte, wird sie beim Kopieren uebersprungen und
+# in posting_meta.yaml unter `missing_anlagen` vermerkt (kein Abbruch).
+
+anlagen:
+  - label: "Arbeitszeugnisse"
+    files:
+      - /Users/steve/Documents/Bewerbungsunterlagen/_anlagen/Arbeitszeugnis_Magna_Eigenwillig.pdf
+
+  - label: "Technikerzeugnis"
+    files:
+      - /Users/steve/Documents/Bewerbungsunterlagen/_anlagen/Technikerzeugnis_Seite_1.pdf
+      - /Users/steve/Documents/Bewerbungsunterlagen/_anlagen/Technikerzeugnis_Seite_2.pdf
+
+  - label: "Ausbilder-Eignungsverordnung"
+    files:
+      - /Users/steve/Documents/Bewerbungsunterlagen/_anlagen/Ausbilder_Eignungsverordnung.pdf
+
+  - label: "REFA-Urkunde"
+    files:
+      - /Users/steve/Documents/Bewerbungsunterlagen/_anlagen/REFA_Urkunde.pdf

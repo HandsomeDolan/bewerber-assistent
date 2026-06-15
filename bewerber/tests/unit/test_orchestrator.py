@@ -196,6 +196,101 @@ def test_tailor_writes_state_entry(tmp_path, monkeypatch, mocker):
     assert job.raw.url == "https://example.com/job/abc"
 
 
+def test_tailor_copies_anlagen_and_lists_labels_in_posting_meta(tmp_path, monkeypatch, mocker):
+    """anlagen.yaml entries are copied into the Bewerbungsordner; labels reach the Anschreiben + meta."""
+    workspace = tmp_path / "ws"
+    bewerber_dir = workspace / "bewerber"
+    bewerber_dir.mkdir(parents=True)
+    bu = tmp_path / "Bewerbungsunterlagen"
+    (bu / "Bewerbungen").mkdir(parents=True)
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(workspace))
+    monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path))
+
+    _write_master(bewerber_dir).rename(bewerber_dir / "master_profile.yaml")
+
+    # Stage real files that anlagen.yaml will point to
+    anlagen_src = tmp_path / "anlagen_src"
+    anlagen_src.mkdir()
+    az = anlagen_src / "Arbeitszeugnis.pdf"
+    az.write_bytes(b"%PDF-1.4 az")
+    tz1 = anlagen_src / "Tz_S1.pdf"
+    tz1.write_bytes(b"%PDF-1.4 tz1")
+    tz2 = anlagen_src / "Tz_S2.pdf"
+    tz2.write_bytes(b"%PDF-1.4 tz2")
+
+    (bewerber_dir / "anlagen.yaml").write_text(yaml.safe_dump({
+        "anlagen": [
+            {"label": "Arbeitszeugnisse", "files": [str(az)]},
+            {"label": "Technikerzeugnis", "files": [str(tz1), str(tz2)]},
+            {"label": "Fehlend", "files": [str(tmp_path / "ghost.pdf")]},
+        ],
+    }, allow_unicode=True))
+
+    mocker.patch("bewerber.tailoring.orchestrator.customize_resume", return_value=CustomizedResume(
+        berufsprofil_zugespitzt="x", berufserfahrung=[], skills_kategorisiert=SkillKategorien(),
+    ))
+    mocker.patch("bewerber.tailoring.orchestrator.generate_anschreiben", return_value=AnschreibenContent(
+        anrede="x", einleitung="x", hauptteil="x", schluss="x", gruss="x",
+    ))
+    render_spy = mocker.patch(
+        "bewerber.tailoring.orchestrator.render_anschreiben",
+        return_value=b"%PDF-1.4 fake-anschreiben",
+    )
+
+    result = tailor(TailorInput(
+        posting_text="job", firma="X GmbH", rolle="Y", datum="2026-06-12",
+        kontakt_name=None, source_url=None, snapshot_dir=None, llm=mocker.Mock(),
+    ))
+
+    out_dir = result.output_dir
+    # Files copied
+    assert (out_dir / "Arbeitszeugnis.pdf").read_bytes() == b"%PDF-1.4 az"
+    assert (out_dir / "Tz_S1.pdf").is_file()
+    assert (out_dir / "Tz_S2.pdf").is_file()
+    assert not (out_dir / "ghost.pdf").exists()
+
+    # Labels passed to Anschreiben renderer in correct order
+    anlagen_kwarg = render_spy.call_args.kwargs["anlagen"]
+    assert anlagen_kwarg == ["Lebenslauf", "Arbeitszeugnisse", "Technikerzeugnis", "Fehlend"]
+
+    # posting_meta.yaml records both labels and missing files
+    meta = yaml.safe_load((out_dir / "posting_meta.yaml").read_text())
+    assert meta["anlagen"] == ["Lebenslauf", "Arbeitszeugnisse", "Technikerzeugnis", "Fehlend"]
+    assert any("ghost.pdf" in m for m in meta["missing_anlagen"])
+
+
+def test_tailor_works_without_anlagen_yaml(tmp_path, monkeypatch, mocker):
+    """No anlagen.yaml → only Lebenslauf label, no files copied, no errors."""
+    workspace = tmp_path / "ws"
+    bewerber_dir = workspace / "bewerber"
+    bewerber_dir.mkdir(parents=True)
+    bu = tmp_path / "Bewerbungsunterlagen"
+    (bu / "Bewerbungen").mkdir(parents=True)
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(workspace))
+    monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path))
+    _write_master(bewerber_dir).rename(bewerber_dir / "master_profile.yaml")
+
+    mocker.patch("bewerber.tailoring.orchestrator.customize_resume", return_value=CustomizedResume(
+        berufsprofil_zugespitzt="x", berufserfahrung=[], skills_kategorisiert=SkillKategorien(),
+    ))
+    mocker.patch("bewerber.tailoring.orchestrator.generate_anschreiben", return_value=AnschreibenContent(
+        anrede="x", einleitung="x", hauptteil="x", schluss="x", gruss="x",
+    ))
+    render_spy = mocker.patch(
+        "bewerber.tailoring.orchestrator.render_anschreiben",
+        return_value=b"%PDF-1.4 fake",
+    )
+
+    result = tailor(TailorInput(
+        posting_text="job", firma="X", rolle="Y", datum="2026-06-12",
+        kontakt_name=None, source_url=None, snapshot_dir=None, llm=mocker.Mock(),
+    ))
+
+    assert render_spy.call_args.kwargs["anlagen"] == ["Lebenslauf"]
+    meta = yaml.safe_load((result.output_dir / "posting_meta.yaml").read_text())
+    assert meta["missing_anlagen"] == []
+
+
 def test_tailor_updates_existing_state_entry_if_url_matches(tmp_path, monkeypatch, mocker):
     """When a job already exists in state matching source_url, tailor updates it instead of creating duplicate."""
     workspace = tmp_path / "ws"

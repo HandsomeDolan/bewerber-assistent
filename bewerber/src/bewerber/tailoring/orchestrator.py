@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 import yaml
 
+from bewerber.shared.anlagen import copy_anlagen_to, load_anlagen
 from bewerber.shared.llm import LLMClient
 from bewerber.shared.paths import Paths
 from bewerber.shared.profile_schema import MasterProfile
@@ -67,10 +68,14 @@ def tailor(inp: TailorInput) -> TailorResult:
     out_dir = paths.bewerbungen / bewerbungsordner_name(inp.datum, inp.firma, inp.rolle)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Load anlagen config (Zeugnisse etc.) so labels stay in sync with the
+    # files that will end up in the Bewerbungsordner.
+    anlagen_cfg = load_anlagen(paths.anlagen_yaml)
+    anlagen_liste = ["Lebenslauf"] + anlagen_cfg.labels
+
     # Render PDFs and persist sources
     datum_de = _to_german_date(inp.datum)
     lebenslauf_pdf = render_lebenslauf(master, customized, zielposition_titel=inp.rolle)
-    anlagen_liste = ["Lebenslauf", "Arbeitszeugnisse"]
     anschreiben_pdf = render_anschreiben(
         master, anschreiben,
         firma=inp.firma, rolle=inp.rolle, datum=datum_de, kontakt_name=inp.kontakt_name,
@@ -92,6 +97,9 @@ def tailor(inp: TailorInput) -> TailorResult:
             if src.is_file():
                 shutil.move(str(src), str(out_dir / fname))
 
+    # Copy attachments (Zeugnisse etc.) from anlagen.yaml
+    missing_anlagen = copy_anlagen_to(anlagen_cfg, out_dir)
+
     # Posting metadata
     meta = {
         "firma": inp.firma,
@@ -101,6 +109,8 @@ def tailor(inp: TailorInput) -> TailorResult:
         "source_url": inp.source_url,
         "starttermin": inp.starttermin,
         "gehalt": inp.gehalt,
+        "anlagen": anlagen_liste,
+        "missing_anlagen": missing_anlagen,
     }
     (out_dir / "posting_meta.yaml").write_text(
         yaml.safe_dump(meta, allow_unicode=True, sort_keys=False),
