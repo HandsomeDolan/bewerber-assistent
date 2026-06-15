@@ -137,9 +137,11 @@ def projects_scan(force: bool) -> None:
 @click.option("--rolle", help="Rollenbezeichnung (für Ordnername + Betreff).")
 @click.option("--kontakt", "kontakt_name", help="Name der Ansprechperson (für Anrede).")
 @click.option("--datum", help="Datum YYYY-MM-DD (default: heute).")
+@click.option("--starttermin", help="Frühester Eintrittstermin (z. B. 'ab sofort', '2026-08-01'). Wird im Anschreiben-Schluss erwähnt.")
+@click.option("--gehalt", help="Gehaltsvorstellung brutto/Jahr (optional, z. B. '65.000 EUR'). Wird im Anschreiben-Schluss erwähnt.")
 @click.option("--rebuild", "rebuild_dir", type=click.Path(exists=True, file_okay=False, path_type=Path),
               help="Nur PDFs neu aus dem Bewerbungsordner rendern (keine LLM-Aufrufe).")
-def cmd_tailor(url, posting_file, firma, rolle, kontakt_name, datum, rebuild_dir):
+def cmd_tailor(url, posting_file, firma, rolle, kontakt_name, datum, starttermin, gehalt, rebuild_dir):
     """Erzeugt tailored Lebenslauf + Anschreiben für eine Stellenausschreibung."""
     if rebuild_dir:
         click.echo(f"Re-rendere PDFs aus {rebuild_dir} …")
@@ -180,6 +182,8 @@ def cmd_tailor(url, posting_file, firma, rolle, kontakt_name, datum, rebuild_dir
         source_url=source_url,
         snapshot_dir=snapshot_dir,
         llm=llm,
+        starttermin=starttermin,
+        gehalt=gehalt,
     ))
     click.echo(f"\n✔ Bewerbungsordner: {result.output_dir}")
     click.echo(f"  • Lebenslauf:    {result.lebenslauf_pdf.name}")

@@ -2,66 +2,116 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<title>Anschreiben {{ profile.person.name }} — {{ firma }}</title>
+<title>Anschreiben {{ profile.person.name }} - {{ firma }}</title>
 <style>
-@page { size: A4; margin: 2.5cm 2.5cm 2cm 2.5cm; }
+/* DIN 5008 Form B (Geschäftsbrief) - Maße angenähert */
+@page {
+  size: A4;
+  margin: 1.69cm 2cm 2cm 2.41cm;   /* DIN 5008: links 2.41cm, rechts >=2cm, oben 1.69cm */
+}
+* { box-sizing: border-box; }
 body {
   font-family: "Helvetica Neue", "Arial", "Liberation Sans", sans-serif;
-  font-size: 11pt; line-height: 1.5; color: #1a1a1a;
+  font-size: 11pt; line-height: 1.4; color: #1a1a1a;
   margin: 0;
 }
-.sender {
-  font-size: 9pt; color: #333;
-  margin-bottom: 2.4em;
+
+/* Absenderzeile oben rechts klein (kein eigener Block, nur in Adressfeld eingerückt) */
+.sender-mini {
+  font-size: 8pt; color: #444;
   border-bottom: 0.5pt solid #888;
-  padding-bottom: 4pt;
+  padding-bottom: 2pt; margin-bottom: 2pt;
 }
-.sender div { margin: 0; }
-.recipient { margin-bottom: 2.4em; }
-.recipient div { margin: 0; font-size: 10.5pt; }
-.datum {
+
+/* Anschriftfeld (DIN: 9 Zeilen, 4.5cm hoch, beginnt 4.5cm von oben des Anschriftfelds = ca. 5cm von Blattoberkante) */
+.anschriftfeld {
+  height: 4.5cm;          /* DIN-Standard: 9 Zeilen á 5mm */
+  padding-top: 0pt;
+  margin-bottom: 0.8cm;
+}
+.anschriftfeld .row { line-height: 1.25; font-size: 11pt; }
+.anschriftfeld .row.firma { font-weight: 700; }
+.anschriftfeld .leerzeile { height: 0.5cm; }
+
+/* Datumzeile + Ort - rechtsbündig, vor dem Betreff */
+.datum-zeile {
   text-align: right;
-  margin-bottom: 1.4em;
-  font-size: 10.5pt;
+  font-size: 11pt;
+  margin: 0 0 0.8cm 0;
 }
+
+/* Bezugszeile / Betreff */
 .betreff {
   font-weight: 700;
   font-size: 11pt;
-  margin: 0 0 1.6em 0;
+  margin: 0 0 1.2cm 0;
 }
-.body p { margin: 0.6em 0; white-space: pre-wrap; }
+
+/* Brieftext */
+.body p {
+  margin: 0 0 0.6em 0;
+  text-align: justify;
+  hyphens: auto;
+  orphans: 3; widows: 3;
+}
+.body p.anrede { margin-bottom: 0.8em; }
+.body p.einleitung,
+.body p.hauptteil,
+.body p.schluss { margin-bottom: 0.8em; }
+
+/* Grußformel + Unterschrift */
 .gruss {
-  margin-top: 1.6em;
+  margin-top: 0.8cm;
   white-space: pre-wrap;
 }
+.gruss-formel { margin-bottom: 1.6cm; }     /* Platz für Unterschrift */
+.gruss-name { font-weight: 600; }
+
+/* Anlagen am Fuß */
+.anlagen {
+  margin-top: 1.2cm;
+  font-size: 10pt; color: #444;
+}
+.anlagen-titel { font-weight: 600; }
 </style>
 </head>
 <body>
 
-<div class="sender">
-  <div><strong>{{ profile.person.name }}</strong></div>
-  {% if profile.person.adresse %}<div>{{ profile.person.adresse }}</div>{% endif %}
-  {% if profile.person.phone %}<div>{{ profile.person.phone }}</div>{% endif %}
-  {% if profile.person.email %}<div>{{ profile.person.email }}</div>{% endif %}
+<div class="anschriftfeld">
+  <div class="sender-mini">
+    {{ profile.person.name }}{% if profile.person.adresse %} · {{ profile.person.adresse }}{% endif %}
+  </div>
+  <div class="row firma">{{ firma }}</div>
+  {% if kontakt_name %}<div class="row">z. Hd. {{ kontakt_name }}</div>{% endif %}
+  <div class="leerzeile"></div>
+  <div class="row">&nbsp;</div>
+  <div class="row">&nbsp;</div>
 </div>
 
-<div class="recipient">
-  <div><strong>{{ firma }}</strong></div>
-  {% if kontakt_name %}<div>z. Hd. {{ kontakt_name }}</div>{% endif %}
+<div class="datum-zeile">
+  {% if ort %}{{ ort }}, {% endif %}{{ datum }}
 </div>
-
-<div class="datum">{{ datum }}</div>
 
 <div class="betreff">Bewerbung als {{ rolle }}</div>
 
 <div class="body">
-  <p>{{ anschreiben.anrede }}</p>
-  <p>{{ anschreiben.einleitung }}</p>
-  <p>{{ anschreiben.hauptteil }}</p>
-  <p>{{ anschreiben.schluss }}</p>
+  <p class="anrede">{{ anschreiben.anrede }}</p>
+  <p class="einleitung">{{ anschreiben.einleitung }}</p>
+  <p class="hauptteil">{{ anschreiben.hauptteil }}</p>
+  <p class="schluss">{{ anschreiben.schluss }}</p>
 </div>
 
-<div class="gruss">{{ anschreiben.gruss }}</div>
+<div class="gruss">
+  <div class="gruss-formel">{{ anschreiben.gruss.split('\n')[0] if '\n' in anschreiben.gruss else 'Mit freundlichen Grüßen' }}</div>
+  <div class="gruss-name">{{ profile.person.name }}</div>
+</div>
+
+{% if anlagen %}
+<div class="anlagen">
+  <div class="anlagen-titel">Anlagen</div>
+  {% for a in anlagen %}<div>{{ a }}</div>{% endfor %}
+</div>
+{% endif %}
 
 </body>
 </html>

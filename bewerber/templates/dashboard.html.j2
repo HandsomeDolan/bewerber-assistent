@@ -45,7 +45,20 @@ tr.expanded + tr.detail { display: table-row; }
   font-size: 13px; cursor: pointer; font-weight: 600;
 }
 .action-btn:hover { background: #2a4a6c; }
-.action-btn:disabled { background: #888; border-color: #888; cursor: default; }
+.action-btn:disabled { background: #888; border-color: #888; cursor: not-allowed; }
+.tailor-form {
+  background: #f4f6f8; border: 1px solid #d8dde2; border-radius: 4px;
+  padding: 8px 10px; margin: 8px 0;
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+}
+.tailor-form label { font-size: 11px; color: #333; display: flex; flex-direction: column; }
+.tailor-form label.required::after { content: " *"; color: #c33; }
+.tailor-form input {
+  margin-top: 2px; padding: 4px 6px;
+  border: 1px solid #c0c8d0; border-radius: 3px;
+  font-size: 13px; min-width: 180px;
+}
+.tailor-form input:invalid { border-color: #d8a0a0; }
 .cmd-box {
   margin: 6px 0; padding: 8px 10px;
   background: #1e1e1e; color: #d8d8d8;
@@ -201,9 +214,23 @@ function detailHtml(r) {
   const flags = (scoring.red_flags || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
   const desc = r.raw.description ? escapeHtml(r.raw.description).slice(0, 800) + (r.raw.description.length > 800 ? "…" : "") : "<em>keine Beschreibung</em>";
   const tailorBtn = r.tailored_dir
-    ? `<span class="muted">✔ Bereits getailored — <a href="file://${r.tailored_dir}">Ordner öffnen</a></span>`
-    : `<button class="action-btn" onclick="copyTailorCmd('${r.jid}', event)">📋 Tailor-Befehl kopieren</button>
-       <span class="copy-toast" id="toast-${r.jid}" style="display:none;">✔ kopiert! Im Terminal pasten.</span>
+    ? `<span class="muted">✔ Bereits getailored - <a href="file://${r.tailored_dir}">Ordner öffnen</a></span>`
+    : `<div class="tailor-form" onclick="event.stopPropagation()">
+         <label class="required">Starttermin
+           <input type="text" id="start-${r.jid}" placeholder="z. B. ab sofort, 2026-08-01"
+                  oninput="updateTailorBtn('${r.jid}')">
+         </label>
+         <label>Gehaltsvorstellung
+           <input type="text" id="gehalt-${r.jid}" placeholder="optional: z. B. 65.000 EUR brutto/Jahr">
+         </label>
+         <label>Kontakt
+           <input type="text" id="kontakt-${r.jid}" placeholder="optional: z. B. Frau Müller">
+         </label>
+         <button class="action-btn" id="tailor-btn-${r.jid}" disabled onclick="copyTailorCmd('${r.jid}', event)">
+           📋 Tailor-Befehl kopieren
+         </button>
+         <span class="copy-toast" id="toast-${r.jid}" style="display:none;">✔ kopiert! Im Terminal pasten.</span>
+       </div>
        <pre class="cmd-box" id="cmd-${r.jid}"></pre>`;
   return `
     <div class="links">${linkPost} ${linkCv} ${linkAns} ${linkApp}</div>
@@ -226,10 +253,27 @@ function escapeHtml(s) {
 function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
 
 const WORKSPACE = {{ workspace_path | tojson }};
+
+function getFormValue(jid, field) {
+  const el = document.getElementById(`${field}-${jid}`);
+  return el ? el.value.trim() : "";
+}
+
+function updateTailorBtn(jid) {
+  const btn = document.getElementById("tailor-btn-" + jid);
+  if (!btn) return;
+  // Starttermin is required (oninput on its field re-runs this)
+  btn.disabled = !getFormValue(jid, "start");
+}
+
 function buildTailorCommand(jid) {
   const r = STATE.jobs[jid];
   if (!r) return "";
   const shellQuote = s => "'" + String(s || "").replace(/'/g, "'\\''") + "'";
+  const start = getFormValue(jid, "start");
+  const gehalt = getFormValue(jid, "gehalt");
+  const kontakt = getFormValue(jid, "kontakt");
+
   const parts = [
     `cd ${shellQuote(WORKSPACE + "/bewerber")}`,
     "source .venv/bin/activate",
@@ -237,12 +281,16 @@ function buildTailorCommand(jid) {
     `  --url ${shellQuote(r.raw.url)}`,
     `  --firma ${shellQuote(r.raw.company)}`,
     `  --rolle ${shellQuote(r.raw.title)}`,
+    `  --starttermin ${shellQuote(start)}`,
   ];
+  if (gehalt) parts.push(`  --gehalt ${shellQuote(gehalt)}`);
+  if (kontakt) parts.push(`  --kontakt ${shellQuote(kontakt)}`);
   return parts.slice(0, 3).join(" && ") + " \\\n " + parts.slice(3).join(" \\\n ");
 }
 
 function copyTailorCmd(jid, evt) {
   if (evt) evt.stopPropagation();  // don't toggle the detail row
+  if (!getFormValue(jid, "start")) return;  // safety: button should already be disabled
   const cmd = buildTailorCommand(jid);
   const box = document.getElementById("cmd-" + jid);
   const toast = document.getElementById("toast-" + jid);

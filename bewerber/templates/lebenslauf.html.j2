@@ -89,6 +89,32 @@ ul.bullets li { margin-bottom: 2pt; }
 .sprachen-row > div { flex: 1; min-width: 8em; }
 .zertifikate-list { margin: 4pt 0 0 0; padding: 0; list-style: none; }
 .zertifikate-list li { font-weight: 700; margin: 3pt 0; }
+
+/* === Page-break protection === */
+/* Section dividers must never end up alone at the bottom of a page */
+.section-divider {
+  page-break-after: avoid;
+  break-after: avoid;
+}
+/* A heading must stay with at least the first line of its content */
+.werdegang-title, .projektstelle-header, .projektblock-title, .projektstelle-period {
+  page-break-after: avoid;
+  break-after: avoid;
+}
+/* For each werdegang-entry / projektblock: keep header + first 2-3 bullets together
+   (page-break-inside: avoid is already set above for these entries) */
+
+/* For bullet lists: minimum lines on each page */
+ul.bullets li { page-break-inside: avoid; }
+
+/* Generic orphan/widow protection */
+p, li {
+  orphans: 2;
+  widows: 2;
+}
+
+/* Bildung entries shouldn't split institution from abschluss */
+.bildung-entry { page-break-inside: avoid; break-inside: avoid; }
 </style>
 </head>
 <body>

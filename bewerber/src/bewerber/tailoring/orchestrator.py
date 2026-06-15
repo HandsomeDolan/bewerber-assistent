@@ -33,6 +33,8 @@ class TailorInput:
     source_url: Optional[str]
     snapshot_dir: Optional[Path]  # if URL was snapshotted, location of posting.html/pdf
     llm: LLMClient
+    starttermin: Optional[str] = None
+    gehalt: Optional[str] = None
 
 
 @dataclass
@@ -58,6 +60,8 @@ def tailor(inp: TailorInput) -> TailorResult:
         kontakt_name=inp.kontakt_name,
         few_shot_examples=few_shot,
         llm=inp.llm,
+        starttermin=inp.starttermin,
+        gehalt=inp.gehalt,
     )
 
     out_dir = paths.bewerbungen / bewerbungsordner_name(inp.datum, inp.firma, inp.rolle)
@@ -66,9 +70,11 @@ def tailor(inp: TailorInput) -> TailorResult:
     # Render PDFs and persist sources
     datum_de = _to_german_date(inp.datum)
     lebenslauf_pdf = render_lebenslauf(master, customized, zielposition_titel=inp.rolle)
+    anlagen_liste = ["Lebenslauf", "Arbeitszeugnisse"]
     anschreiben_pdf = render_anschreiben(
         master, anschreiben,
         firma=inp.firma, rolle=inp.rolle, datum=datum_de, kontakt_name=inp.kontakt_name,
+        anlagen=anlagen_liste,
     )
     (out_dir / "lebenslauf.pdf").write_bytes(lebenslauf_pdf)
     (out_dir / "anschreiben.pdf").write_bytes(anschreiben_pdf)
@@ -93,6 +99,8 @@ def tailor(inp: TailorInput) -> TailorResult:
         "datum": inp.datum,
         "kontakt_name": inp.kontakt_name,
         "source_url": inp.source_url,
+        "starttermin": inp.starttermin,
+        "gehalt": inp.gehalt,
     }
     (out_dir / "posting_meta.yaml").write_text(
         yaml.safe_dump(meta, allow_unicode=True, sort_keys=False),

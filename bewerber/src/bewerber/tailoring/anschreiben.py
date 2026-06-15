@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 from pydantic import BaseModel, Field, ConfigDict
 
 from bewerber.shared.llm import LLMClient
@@ -17,8 +18,14 @@ REGELN:
    - Anrede (Frau/Herr <Nachname> oder "Sehr geehrte Damen und Herren")
    - Einleitung (1-2 Sätze: worauf bezieht sich Bewerbung, warum Interesse)
    - Hauptteil (3-5 Sätze: Was bringe ich mit, konkrete Erfolge aus Master)
-   - Schluss (1-2 Sätze: Einladung zum Gespräch, höfliche Verabschiedung)
+   - Schluss (2-4 Sätze: Einladung zum Gespräch, Vorgaben zu Starttermin/Gehalt natürlich einweben, höfliche Verabschiedung)
    - Gruss (Standard "Mit freundlichen Grüßen" + Name)
+
+VORGABEN-EINWEBUNG (falls vom Nutzer angegeben):
+- Frühester Starttermin: muss explizit im Schluss erwähnt werden, in natürlicher Formulierung
+  (z. B. "Mein frühestmöglicher Eintrittstermin ist der ..." oder "Ich kann ab ... beginnen").
+- Gehaltsvorstellung: nur erwähnen, wenn vom Nutzer angegeben. Format:
+  "Meine Gehaltsvorstellung liegt bei ... brutto pro Jahr."
 """
 
 
@@ -27,7 +34,7 @@ class AnschreibenContent(BaseModel):
     anrede: str = Field(description="Sehr geehrte Frau X / Herr Y / Damen und Herren,")
     einleitung: str = Field(description="1-2 Sätze: Bezug + Interesse")
     hauptteil: str = Field(description="3-5 Sätze, ggf. Absätze. Konkrete Erfolge aus Master.")
-    schluss: str = Field(description="1-2 Sätze: Einladung zum Gespräch")
+    schluss: str = Field(description="2-4 Sätze: ggf. Starttermin + Gehalt natürlich einweben, Einladung zum Gespräch")
     gruss: str = Field(description="z.B. 'Mit freundlichen Grüßen\\nSteve Eigenwillig'")
 
     def to_markdown(self) -> str:
@@ -55,6 +62,8 @@ def generate_anschreiben(
     kontakt_name: str | None,
     few_shot_examples: list[str],
     llm: LLMClient,
+    starttermin: Optional[str] = None,
+    gehalt: Optional[str] = None,
 ) -> AnschreibenContent:
     """Run LLM pass 2: generate Anschreiben as structured content."""
     examples_block = ""
@@ -67,8 +76,17 @@ def generate_anschreiben(
         f"Ansprechpartner laut Stellenausschreibung: {kontakt_name}. "
         f"Anrede entsprechend: 'Sehr geehrte/r Frau/Herr {kontakt_name.split()[-1] if kontakt_name else ''}'."
         if kontakt_name
-        else "Es gibt kein konkreter Ansprechpartner — Anrede: 'Sehr geehrte Damen und Herren,'"
+        else "Es gibt keinen konkreten Ansprechpartner - Anrede: 'Sehr geehrte Damen und Herren,'"
     )
+
+    vorgaben_lines = []
+    if starttermin:
+        vorgaben_lines.append(f"- Frühester Starttermin: {starttermin} (muss im Schluss erwähnt werden)")
+    if gehalt:
+        vorgaben_lines.append(f"- Gehaltsvorstellung: {gehalt} (muss im Schluss als jährliches Bruttogehalt erwähnt werden)")
+    vorgaben_block = ""
+    if vorgaben_lines:
+        vorgaben_block = "VORGABEN DES NUTZERS (im Schluss-Absatz einweben):\n" + "\n".join(vorgaben_lines) + "\n\n"
 
     user = (
         "MASTER-PROFIL DES BEWERBERS:\n"
@@ -76,6 +94,7 @@ def generate_anschreiben(
         "STELLENAUSSCHREIBUNG:\n"
         f"{job_description}\n\n"
         f"{kontakt_hint}\n\n"
+        f"{vorgaben_block}"
         f"{examples_block}"
         "Verfasse das deutsche Anschreiben."
     )
