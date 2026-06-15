@@ -71,7 +71,12 @@ body {
 .werdegang-date { font-size: 9.5pt; color: #333; white-space: nowrap; }
 ul.bullets { margin: 4pt 0 0 1.4em; padding: 0; }
 ul.bullets li { margin-bottom: 2pt; }
-.projektstelle { margin: 10pt 0 0 0; page-break-inside: avoid; }
+/* `.projektstelle` selbst NICHT mit page-break-inside: avoid -
+   dadurch entstehen sonst Konflikte mit `.section-divider + *` (keep-with-next):
+   die ganze projektstelle wandert auf die naechste Seite, und der section-divider
+   bleibt orphaned zurueck. Die granulare no-break-inside-Regel auf
+   `.projektblock` (unten) reicht, um zerrissene Bullet-Listen zu verhindern. */
+.projektstelle { margin: 10pt 0 0 0; }
 .projektstelle-period { font-weight: 700; font-size: 10pt; margin: 4pt 0 1pt 0; }
 .projektstelle-header { font-weight: 700; font-size: 10.5pt; margin: 0 0 4pt 0; }
 .projektblock { margin: 6pt 0 8pt 0; page-break-inside: avoid; }
