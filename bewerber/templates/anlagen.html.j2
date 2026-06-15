@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Anlagen verwalten - Bewerber</title>
+<style>
+  body { font-family: "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 0; background: #f7f8fa; color: #222; }
+  header { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #ddd; padding: 12px 24px; display: flex; align-items: center; gap: 24px; z-index: 10; }
+  header h1 { margin: 0; font-size: 18px; flex: 1; }
+  header a.back { color: #555; text-decoration: none; font-size: 14px; }
+  header a.back:hover { color: #000; }
+  .toolbar { display: flex; gap: 8px; }
+  button { font: inherit; padding: 6px 14px; border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer; }
+  button:hover:not(:disabled) { background: #f0f0f0; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: #2266cc; color: #fff; border-color: #2266cc; font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: #1a55b3; }
+  button.danger { color: #c33; border-color: #d8a0a0; }
+  button.danger:hover { background: #fdf0f0; }
+  button.small { padding: 4px 10px; font-size: 12px; }
+  main { max-width: 880px; margin: 24px auto; padding: 0 16px; }
+  section { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 18px 22px; margin-bottom: 20px; }
+  section h2 { margin: 0 0 14px 0; font-size: 16px; border-bottom: 1px solid #eee; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+  label.field { display: block; margin: 12px 0; font-size: 13px; color: #444; }
+  label.field > span { display: block; margin-bottom: 4px; font-weight: 600; color: #333; }
+  label.field > small { display: block; font-weight: normal; color: #888; font-size: 11px; margin-bottom: 4px; }
+  input[type="text"], textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font: inherit; font-size: 13px; }
+  textarea { font-family: ui-monospace, "SF Mono", Menlo, monospace; resize: vertical; min-height: 60px; }
+  .anlage-card { border: 1px solid #d8d8d8; border-radius: 5px; padding: 14px 18px; margin: 14px 0; background: #fcfcfc; }
+  .anlage-card .head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .anlage-card .head input.label-input { flex: 1; font-weight: 600; font-size: 14px; }
+  .file-status { font-size: 12px; margin-top: 6px; padding: 6px 10px; border-radius: 4px; display: none; white-space: pre-wrap; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .file-status.ok { display: block; background: #e8f7ec; color: #1a5b2b; border: 1px solid #b8e0c2; }
+  .file-status.warn { display: block; background: #fdf6e3; color: #8a5d00; border: 1px solid #f0d495; }
+  .file-status.err { display: block; background: #fde9e9; color: #8a1a1a; border: 1px solid #f3b0b0; }
+  .empty-state { padding: 24px; text-align: center; color: #888; font-style: italic; }
+  #status { padding: 10px 16px; border-radius: 4px; margin-bottom: 16px; display: none; }
+  #status.ok { display: block; background: #e8f7ec; color: #1a5b2b; border: 1px solid #b8e0c2; }
+  #status.error { display: block; background: #fde9e9; color: #8a1a1a; border: 1px solid #f3b0b0; white-space: pre-wrap; }
+  .dirty-flag { color: #c84; font-size: 12px; }
+  .hint { color: #666; font-size: 12px; margin-top: 8px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/">← Dashboard</a>
+  <h1>Anlagen verwalten <span id="dirty" class="dirty-flag" style="display:none;"> (ungespeicherte Aenderungen)</span></h1>
+  <div class="toolbar">
+    <button id="reload-btn" title="Aenderungen verwerfen">↺ Neu laden</button>
+    <button id="save-btn" class="primary" disabled>💾 Speichern</button>
+  </div>
+</header>
+
+<main>
+  <div id="status"></div>
+
+  <section>
+    <h2>
+      Anlagen
+      <button id="add-btn">+ Anlage hinzufuegen</button>
+    </h2>
+    <p class="hint">
+      Hinterlege hier die Dateien (Zeugnisse, Urkunden), die bei jedem
+      <code>bewerber tailor</code>-Lauf automatisch in den neuen Bewerbungsordner
+      kopiert werden. Die Labels erscheinen im Anlagen-Block des Anschreibens.
+      "Lebenslauf" wird automatisch vorangestellt - hier NICHT eintragen.
+      Pfade muessen <b>absolut</b> sein.
+    </p>
+    <div id="anlagen-list">
+      <div class="empty-state">Noch keine Anlagen konfiguriert.</div>
+    </div>
+  </section>
+</main>
+
+<template id="anlage-card-template">
+  <div class="anlage-card">
+    <div class="head">
+      <input type="text" class="label-input" placeholder="Label (z.B. Arbeitszeugnisse, Technikerzeugnis)" required>
+      <button class="verify-btn small" type="button" title="Existenz pruefen">🔍 Pruefen</button>
+      <button class="dup-btn small" type="button" title="Duplizieren">⎘</button>
+      <button class="del-btn small danger" type="button" title="Loeschen">×</button>
+    </div>
+    <label class="field">
+      <span>Dateien</span>
+      <small>Absolute Pfade, eine Datei pro Zeile. Mehrere Zeilen unter einem Label, wenn ein Dokument auf mehrere PDFs verteilt ist (z.B. Technikerzeugnis Seite 1 + 2).</small>
+      <textarea class="files-input" rows="3" placeholder="/Users/steve/Documents/Bewerbungsunterlagen/_anlagen/Arbeitszeugnis.pdf"></textarea>
+    </label>
+    <div class="file-status"></div>
+  </div>
+</template>
+
+<script id="initial-config" type="application/json">{{ config_json }}</script>
+<script>
+let initialConfig = JSON.parse(document.getElementById("initial-config").textContent);
+let dirty = false;
+
+function linesToList(s) {
+  return (s || "").split("\n").map(l => l.trim()).filter(Boolean);
+}
+function listToLines(arr) {
+  return Array.isArray(arr) ? arr.join("\n") : "";
+}
+function setDirty(v) {
+  dirty = v;
+  document.getElementById("dirty").style.display = v ? "" : "none";
+  document.getElementById("save-btn").disabled = !v;
+}
+function setStatus(kind, msg) {
+  const el = document.getElementById("status");
+  el.className = kind;
+  el.textContent = msg;
+  if (!msg) el.style.display = "none";
+}
+
+function renderConfig(cfg) {
+  const list = document.getElementById("anlagen-list");
+  list.innerHTML = "";
+  if (!cfg.anlagen || cfg.anlagen.length === 0) {
+    list.innerHTML = '<div class="empty-state">Noch keine Anlagen konfiguriert.</div>';
+    return;
+  }
+  cfg.anlagen.forEach(a => list.appendChild(buildCard(a)));
+}
+
+function buildCard(anlage) {
+  const tpl = document.getElementById("anlage-card-template");
+  const node = tpl.content.firstElementChild.cloneNode(true);
+  node.querySelector(".label-input").value = anlage.label || "";
+  node.querySelector(".files-input").value = listToLines(anlage.files);
+
+  node.querySelector(".del-btn").addEventListener("click", () => {
+    if (confirm(`Anlage "${node.querySelector(".label-input").value || "(unbenannt)"}" loeschen?`)) {
+      node.remove();
+      setDirty(true);
+      ensureEmptyState();
+    }
+  });
+  node.querySelector(".dup-btn").addEventListener("click", () => {
+    const copy = collectCardData(node);
+    copy.label = (copy.label || "Neue Anlage") + " (Kopie)";
+    node.parentNode.insertBefore(buildCard(copy), node.nextSibling);
+    setDirty(true);
+  });
+  node.querySelector(".verify-btn").addEventListener("click", () => verifyCard(node));
+
+  return node;
+}
+
+function ensureEmptyState() {
+  const list = document.getElementById("anlagen-list");
+  if (list.querySelectorAll(".anlage-card").length === 0) {
+    list.innerHTML = '<div class="empty-state">Noch keine Anlagen konfiguriert.</div>';
+  }
+}
+
+function collectCardData(card) {
+  return {
+    label: card.querySelector(".label-input").value.trim(),
+    files: linesToList(card.querySelector(".files-input").value),
+  };
+}
+
+function collectFormConfig() {
+  return {
+    anlagen: Array.from(document.querySelectorAll(".anlage-card")).map(collectCardData),
+  };
+}
+
+async function verifyCard(card) {
+  const statusEl = card.querySelector(".file-status");
+  const paths = linesToList(card.querySelector(".files-input").value);
+  if (paths.length === 0) {
+    statusEl.className = "file-status warn";
+    statusEl.textContent = "Keine Pfade angegeben.";
+    return;
+  }
+  statusEl.className = "file-status";
+  statusEl.textContent = "Pruefe ...";
+  statusEl.style.display = "block";
+  try {
+    const resp = await fetch("/api/anlagen/verify", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({paths}),
+    });
+    const body = await resp.json();
+    const lines = paths.map(p => {
+      const ok = !body.missing.includes(p);
+      return `${ok ? "✓" : "✗"}  ${p}`;
+    });
+    if (body.missing.length === 0) {
+      statusEl.className = "file-status ok";
+    } else if (body.missing.length === paths.length) {
+      statusEl.className = "file-status err";
+    } else {
+      statusEl.className = "file-status warn";
+    }
+    statusEl.textContent = lines.join("\n");
+  } catch (e) {
+    statusEl.className = "file-status err";
+    statusEl.textContent = "Pruefung fehlgeschlagen: " + e.message;
+  }
+}
+
+document.getElementById("add-btn").addEventListener("click", () => {
+  const list = document.getElementById("anlagen-list");
+  const empty = list.querySelector(".empty-state");
+  if (empty) empty.remove();
+  list.appendChild(buildCard({label: "", files: []}));
+  setDirty(true);
+});
+
+document.getElementById("reload-btn").addEventListener("click", async () => {
+  if (dirty && !confirm("Ungespeicherte Aenderungen verwerfen?")) return;
+  await reloadFromServer();
+});
+
+document.getElementById("save-btn").addEventListener("click", async () => {
+  const cfg = collectFormConfig();
+  setStatus("", "");
+  try {
+    const resp = await fetch("/api/anlagen", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(cfg),
+    });
+    const body = await resp.json();
+    if (!resp.ok) {
+      setStatus("error", "Validierungs-Fehler: " + (body.error || JSON.stringify(body)));
+      return;
+    }
+    initialConfig = cfg;
+    setDirty(false);
+    if (body.missing && body.missing.length) {
+      setStatus("error", "✓ Gespeichert, aber folgende Dateien existieren nicht auf der Platte:\n" + body.missing.join("\n"));
+    } else {
+      setStatus("ok", `✓ Gespeichert. ${body.anlagen} Anlage(n). Beim naechsten tailor-Lauf werden die Dateien automatisch in den Bewerbungsordner kopiert.`);
+    }
+  } catch (e) {
+    setStatus("error", "Netzfehler: " + e.message);
+  }
+});
+
+async function reloadFromServer() {
+  try {
+    const resp = await fetch("/api/anlagen");
+    const cfg = await resp.json();
+    initialConfig = cfg;
+    renderConfig(cfg);
+    setDirty(false);
+    setStatus("", "");
+  } catch (e) {
+    setStatus("error", "Konnte Konfiguration nicht laden: " + e.message);
+  }
+}
+
+document.addEventListener("input", e => { if (e.target.closest("main")) setDirty(true); });
+document.addEventListener("change", e => { if (e.target.closest("main")) setDirty(true); });
+
+window.addEventListener("beforeunload", e => {
+  if (dirty) { e.preventDefault(); e.returnValue = ""; }
+});
+
+renderConfig(initialConfig);
+setDirty(false);
+</script>
+</body>
+</html>

@@ -3,6 +3,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from bewerber.discovery.searches import SearchesConfig
+from bewerber.shared.anlagen import AnlagenConfig
 from bewerber.shared.paths import Paths
 from bewerber.shared.state_schema import BewerberState
 
@@ -29,4 +30,13 @@ def render_searches_editor(config: SearchesConfig) -> str:
     """Render the standalone /searches editor page."""
     tpl = _env().get_template("searches.html.j2")
     config_json = json.dumps(config.model_dump(), ensure_ascii=False)
+    return tpl.render(config_json=config_json)
+
+
+def render_anlagen_editor(config: AnlagenConfig) -> str:
+    """Render the standalone /anlagen editor page."""
+    tpl = _env().get_template("anlagen.html.j2")
+    # Path objects need string serialization for the JSON embed
+    cfg_dict = config.model_dump(mode="json")
+    config_json = json.dumps(cfg_dict, ensure_ascii=False)
     return tpl.render(config_json=config_json)

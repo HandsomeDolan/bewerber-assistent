@@ -230,3 +230,81 @@ def test_get_searches_html_page_renders(running_server):
     assert code == 200
     assert "Suchkonfiguration" in body
     assert "initial-config" in body  # embedded JSON script tag
+
+
+# ---------------------------------------------------------------------------
+# Anlagen editor endpoints
+# ---------------------------------------------------------------------------
+
+def test_get_anlagen_returns_empty_when_yaml_missing(running_server, tmp_path):
+    code, body = _get(running_server, "/api/anlagen")
+    assert code == 200
+    cfg = json.loads(body)
+    assert cfg["anlagen"] == []
+
+
+def test_get_anlagen_returns_existing_yaml(running_server, tmp_path):
+    import yaml
+    (tmp_path / "bewerber" / "anlagen.yaml").write_text(yaml.safe_dump({
+        "anlagen": [
+            {"label": "Arbeitszeugnisse", "files": ["/some/cert.pdf"]},
+            {"label": "Technikerzeugnis", "files": ["/p1.pdf", "/p2.pdf"]},
+        ],
+    }, allow_unicode=True))
+    code, body = _get(running_server, "/api/anlagen")
+    assert code == 200
+    cfg = json.loads(body)
+    assert len(cfg["anlagen"]) == 2
+    assert cfg["anlagen"][0]["label"] == "Arbeitszeugnisse"
+    assert cfg["anlagen"][1]["files"] == ["/p1.pdf", "/p2.pdf"]
+
+
+def test_post_anlagen_persists_atomically(running_server, tmp_path):
+    """Valid POST writes anlagen.yaml; missing-files list reported in response."""
+    new_cfg = {
+        "anlagen": [
+            {"label": "Zeugnis", "files": ["/does/not/exist.pdf"]},
+        ],
+    }
+    code, body = _post_json(running_server, "/api/anlagen", new_cfg)
+    assert code == 200, body
+    assert body["ok"] is True
+    assert body["anlagen"] == 1
+    assert "/does/not/exist.pdf" in body["missing"]
+
+    import yaml
+    written = yaml.safe_load((tmp_path / "bewerber" / "anlagen.yaml").read_text())
+    assert written["anlagen"][0]["label"] == "Zeugnis"
+    assert not (tmp_path / "bewerber" / "anlagen.yaml.tmp").exists()
+
+
+def test_post_anlagen_validation_error_returns_400(running_server, tmp_path):
+    """Missing required 'label' field -> 400, file unchanged."""
+    bad = {"anlagen": [{"files": ["/foo.pdf"]}]}   # no label
+    code, body = _post_json(running_server, "/api/anlagen", bad)
+    assert code == 400
+    assert "label" in body["error"]
+    assert not (tmp_path / "bewerber" / "anlagen.yaml").exists()
+
+
+def test_verify_anlagen_returns_missing_paths(running_server, tmp_path):
+    """Verify endpoint distinguishes existing vs missing files."""
+    real = tmp_path / "real.pdf"
+    real.write_bytes(b"%PDF-1.4")
+    code, body = _post_json(running_server, "/api/anlagen/verify", {
+        "paths": [str(real), "/definitely/missing.pdf"],
+    })
+    assert code == 200
+    assert body["missing"] == ["/definitely/missing.pdf"]
+
+
+def test_verify_anlagen_rejects_non_list(running_server):
+    code, body = _post_json(running_server, "/api/anlagen/verify", {"paths": "/wrong.pdf"})
+    assert code == 400
+
+
+def test_get_anlagen_html_page_renders(running_server):
+    code, body = _get(running_server, "/anlagen")
+    assert code == 200
+    assert "Anlagen verwalten" in body
+    assert "initial-config" in body

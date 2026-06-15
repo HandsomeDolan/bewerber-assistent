@@ -5,6 +5,10 @@ Endpoints:
     GET  /searches          -> rendered searches.html (editor UI)
     GET  /api/searches      -> current searches.yaml as JSON
     POST /api/searches      -> validate (SearchesConfig) + atomically rewrite searches.yaml
+    GET  /anlagen           -> rendered anlagen.html (editor UI)
+    GET  /api/anlagen       -> current anlagen.yaml as JSON
+    POST /api/anlagen       -> validate (AnlagenConfig) + atomically rewrite anlagen.yaml
+    POST /api/anlagen/verify -> body {paths: [...]} -> returns {missing: [...]}
     POST /api/mark          -> body {job_id, status, application_link?, interview_at?}
                                updates state.json + status_history, returns {ok: true}
     POST /api/note          -> body {job_id, text}
@@ -30,10 +34,15 @@ import yaml
 from pydantic import ValidationError
 
 from bewerber.discovery.searches import SearchesConfig
+from bewerber.shared.anlagen import AnlagenConfig, copy_anlagen_to, load_anlagen
 from bewerber.shared.paths import Paths
 from bewerber.shared.state import load_state, save_state
 from bewerber.shared.state_schema import JobStatus, StatusHistoryEntry
-from bewerber.dashboard.render import render_dashboard, render_searches_editor
+from bewerber.dashboard.render import (
+    render_anlagen_editor,
+    render_dashboard,
+    render_searches_editor,
+)
 
 
 def _now_iso() -> str:
@@ -93,6 +102,13 @@ class _Handler(BaseHTTPRequestHandler):
             cfg = _load_searches_config(self.paths)
             self._send_json(200, cfg.model_dump())
             return
+        if self.path == "/anlagen":
+            self._send_html(render_anlagen_editor(load_anlagen(self.paths.anlagen_yaml)))
+            return
+        if self.path == "/api/anlagen":
+            cfg = load_anlagen(self.paths.anlagen_yaml)
+            self._send_json(200, cfg.model_dump(mode="json"))
+            return
         self._send_json(404, {"error": "not found", "path": self.path})
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib API
@@ -105,6 +121,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_open_folder()
             elif self.path == "/api/searches":
                 self._handle_save_searches()
+            elif self.path == "/api/anlagen":
+                self._handle_save_anlagen()
+            elif self.path == "/api/anlagen/verify":
+                self._handle_verify_anlagen()
             else:
                 self._send_json(404, {"error": "unknown endpoint"})
         except Exception as e:  # noqa: BLE001
@@ -119,6 +139,29 @@ class _Handler(BaseHTTPRequestHandler):
             return
         _save_searches_atomic(self.paths.bewerber_dir / "searches.yaml", cfg)
         self._send_json(200, {"ok": True, "searches": len(cfg.searches)})
+
+    def _handle_save_anlagen(self) -> None:
+        body = self._read_json()
+        try:
+            cfg = AnlagenConfig.model_validate(body)
+        except ValidationError as ve:
+            self._send_json(400, {"error": _format_validation_error(ve)})
+            return
+        _save_anlagen_atomic(self.paths.anlagen_yaml, cfg)
+        # Report missing files so UI can warn user, but save still succeeded
+        missing = [
+            str(f) for a in cfg.anlagen for f in a.files if not Path(f).is_file()
+        ]
+        self._send_json(200, {"ok": True, "anlagen": len(cfg.anlagen), "missing": missing})
+
+    def _handle_verify_anlagen(self) -> None:
+        body = self._read_json()
+        paths = body.get("paths", [])
+        if not isinstance(paths, list):
+            self._send_json(400, {"error": "paths must be a list"})
+            return
+        missing = [p for p in paths if not Path(p).is_file()]
+        self._send_json(200, {"missing": missing})
 
     def _handle_mark(self) -> None:
         body = self._read_json()
@@ -196,6 +239,20 @@ def _save_searches_atomic(path: Path, cfg: SearchesConfig) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     yaml_text = yaml.safe_dump(
         cfg.model_dump(),
+        allow_unicode=True,
+        sort_keys=False,
+        default_flow_style=False,
+    )
+    tmp.write_text(yaml_text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _save_anlagen_atomic(path: Path, cfg: AnlagenConfig) -> None:
+    """Atomically rewrite anlagen.yaml (temp file + os.replace)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    yaml_text = yaml.safe_dump(
+        cfg.model_dump(mode="json"),   # Path objects -> str
         allow_unicode=True,
         sort_keys=False,
         default_flow_style=False,
