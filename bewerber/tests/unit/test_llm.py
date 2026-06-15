@@ -207,6 +207,66 @@ def test_chain_includes_openai_fallback_when_key_set(monkeypatch, mocker):
     assert all("openai:" in p.name for p in client.providers)
 
 
+# ---------------------------------------------------------------------------
+# Role-specific factories: for_scoring / for_generation
+# ---------------------------------------------------------------------------
+
+def test_for_scoring_uses_scoring_env_when_set(monkeypatch, mocker):
+    monkeypatch.setenv("BEWERBER_SCORING_MODEL", "gpt-5.1-mini")
+    monkeypatch.setenv("BEWERBER_GENERATION_MODEL", "gpt-5.1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")
+    monkeypatch.delenv("OPENAI_API_KEY_FALLBACK", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("BEWERBER_LLM_MODEL", raising=False)
+    mocker.patch("bewerber.shared.llm.OpenAI")
+
+    scoring = LLMClient.for_scoring()
+    generation = LLMClient.for_generation()
+    assert scoring.model == "gpt-5.1-mini"
+    assert generation.model == "gpt-5.1"
+
+
+def test_role_env_falls_back_to_llm_model_env(monkeypatch, mocker):
+    """Wenn role-spezifisches env fehlt, greift BEWERBER_LLM_MODEL."""
+    monkeypatch.delenv("BEWERBER_SCORING_MODEL", raising=False)
+    monkeypatch.delenv("BEWERBER_GENERATION_MODEL", raising=False)
+    monkeypatch.setenv("BEWERBER_LLM_MODEL", "gpt-5.1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")
+    monkeypatch.delenv("OPENAI_API_KEY_FALLBACK", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    mocker.patch("bewerber.shared.llm.OpenAI")
+
+    assert LLMClient.for_scoring().model == "gpt-5.1"
+    assert LLMClient.for_generation().model == "gpt-5.1"
+
+
+def test_role_env_falls_back_to_default_when_nothing_set(monkeypatch, mocker):
+    monkeypatch.delenv("BEWERBER_SCORING_MODEL", raising=False)
+    monkeypatch.delenv("BEWERBER_GENERATION_MODEL", raising=False)
+    monkeypatch.delenv("BEWERBER_LLM_MODEL", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")
+    monkeypatch.delenv("OPENAI_API_KEY_FALLBACK", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    mocker.patch("bewerber.shared.llm.OpenAI")
+
+    assert LLMClient.for_scoring().model == LLMClient.DEFAULT_MODEL
+    assert LLMClient.for_generation().model == LLMClient.DEFAULT_MODEL
+
+
+def test_role_env_overrides_legacy_llm_model_env(monkeypatch, mocker):
+    """Role-spezifisches env hat Vorrang vor BEWERBER_LLM_MODEL."""
+    monkeypatch.setenv("BEWERBER_LLM_MODEL", "gpt-5.1")
+    monkeypatch.setenv("BEWERBER_SCORING_MODEL", "gpt-5.1-mini")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")
+    monkeypatch.delenv("OPENAI_API_KEY_FALLBACK", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    mocker.patch("bewerber.shared.llm.OpenAI")
+
+    assert LLMClient.for_scoring().model == "gpt-5.1-mini"
+    # Generation faellt auf LLM_MODEL zurueck
+    assert LLMClient.for_generation().model == "gpt-5.1"
+
+
 def test_chain_includes_gemini_when_google_key_set(monkeypatch, mocker):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")
     monkeypatch.delenv("OPENAI_API_KEY_FALLBACK", raising=False)

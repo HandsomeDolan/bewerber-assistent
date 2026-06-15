@@ -187,11 +187,25 @@ class GeminiProvider(_Provider):
 
 
 class LLMClient:
-    """Multi-provider LLM client with quota-fallback + transient retry."""
+    """Multi-provider LLM client with quota-fallback + transient retry.
+
+    Two role-specific factory methods (`for_scoring`, `for_generation`) pick
+    the model from a role-aware env-resolution chain:
+
+      BEWERBER_SCORING_MODEL  ->  BEWERBER_LLM_MODEL  ->  DEFAULT_MODEL
+      BEWERBER_GENERATION_MODEL -> BEWERBER_LLM_MODEL -> DEFAULT_MODEL
+
+    Scoring (Klassifikation, hohes Volumen) profitiert von gpt-5.1-mini.
+    Generation (Anschreiben/Lebenslauf-Bullets, kreativ + faktentreu)
+    moechte typischerweise gpt-5.1 oder gleichwertig.
+    """
 
     DEFAULT_MODEL = "gpt-5.1-mini"
     DEFAULT_GEMINI_MODEL = "gemini-2.0-flash-exp"
     RETRY_DELAY_S = 1.5
+
+    SCORING_MODEL_ENV = "BEWERBER_SCORING_MODEL"
+    GENERATION_MODEL_ENV = "BEWERBER_GENERATION_MODEL"
 
     def __init__(
         self,
@@ -213,6 +227,28 @@ class LLMClient:
             return
 
         self.providers = self._build_default_chain(primary_model)
+
+    # ------------------------------------------------------------------
+    # Role-specific factories: scoring (cheap, high-volume) vs. generation
+    # (quality-sensitive, low-volume). Resolution chain falls back through
+    # BEWERBER_LLM_MODEL -> DEFAULT_MODEL so old configs keep working.
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def for_scoring(cls) -> "LLMClient":
+        return cls(model=cls._resolve_model(cls.SCORING_MODEL_ENV))
+
+    @classmethod
+    def for_generation(cls) -> "LLMClient":
+        return cls(model=cls._resolve_model(cls.GENERATION_MODEL_ENV))
+
+    @classmethod
+    def _resolve_model(cls, role_env: str) -> str:
+        return (
+            os.environ.get(role_env)
+            or os.environ.get("BEWERBER_LLM_MODEL")
+            or cls.DEFAULT_MODEL
+        )
 
     @staticmethod
     def _build_default_chain(primary_model: str) -> list[_Provider]:

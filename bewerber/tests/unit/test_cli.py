@@ -95,7 +95,7 @@ def test_profile_init_writes_master_yaml(tmp_path, monkeypatch, mocker):
             interessen=[],
         ),
     )
-    monkeypatch.setattr("bewerber.cli.LLMClient", mocker.Mock)
+    monkeypatch.setattr("bewerber.cli.LLMClient", mocker.MagicMock())
     monkeypatch.setattr(
         "bewerber.cli.save_anschreiben_examples",
         lambda srcs, out: [out / "01_x.txt"],
@@ -142,7 +142,7 @@ def test_tailor_from_file_invokes_orchestrator(tmp_path, monkeypatch, mocker):
     posting = tmp_path / "posting.txt"
     posting.write_text("KI Manager bei BMW. Python gesucht.")
 
-    monkeypatch.setattr("bewerber.cli.LLMClient", mocker.Mock)
+    monkeypatch.setattr("bewerber.cli.LLMClient", mocker.MagicMock())
     fake_tailor = mocker.patch("bewerber.cli.tailor")
     fake_result = mocker.Mock()
     fake_result.output_dir = tmp_path / "out"
@@ -171,7 +171,7 @@ def test_tailor_from_file_invokes_orchestrator(tmp_path, monkeypatch, mocker):
 
 
 def test_tailor_from_url_calls_snapshot(tmp_path, monkeypatch, mocker):
-    monkeypatch.setattr("bewerber.cli.LLMClient", mocker.Mock)
+    monkeypatch.setattr("bewerber.cli.LLMClient", mocker.MagicMock())
     monkeypatch.setenv("BEWERBER_WORKSPACE", str(tmp_path))
 
     fake_snap = mocker.patch("bewerber.cli.snapshot_url", return_value="Posting text from URL.")

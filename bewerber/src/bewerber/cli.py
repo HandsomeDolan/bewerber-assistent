@@ -63,8 +63,8 @@ def profile_init(force: bool) -> None:
         click.echo(f"Bewerbungsunterlagen nicht gefunden: {paths.bewerbungsunterlagen}")
         raise click.exceptions.Exit(1)
 
-    llm = LLMClient()
-    click.echo(f"Lese Dokumente aus {paths.bewerbungsunterlagen} …")
+    llm = LLMClient.for_scoring()  # one-shot Extraktion, kein Vollmodell noetig
+    click.echo(f"Lese Dokumente aus {paths.bewerbungsunterlagen} … [{llm.model}]")
     profile = extract_profile_from_documents(paths.bewerbungsunterlagen, llm=llm)
     click.echo(f"Extrahiert: {profile.person.name}, {len(profile.berufserfahrung)} Stellen")
 
@@ -114,7 +114,7 @@ def profile_sync() -> None:
 def projects_scan(force: bool) -> None:
     """Erzeugt _profile.md in jedem Projektordner."""
     paths = Paths()
-    llm = LLMClient()
+    llm = LLMClient.for_scoring()
     folders = paths.project_folders()
     if not folders:
         click.echo(f"Keine Projektordner gefunden in {paths.documents}")
@@ -160,7 +160,8 @@ def cmd_tailor(url, posting_file, firma, rolle, kontakt_name, datum, starttermin
         raise click.exceptions.Exit(1)
 
     datum = datum or date.today().isoformat()
-    llm = LLMClient()
+    llm = LLMClient.for_generation()  # Anschreiben + Customize: Qualitaet vor Kosten
+    click.echo(f"  LLM-Modell: {llm.model}")
     snapshot_dir: Path | None = None
 
     if posting_file:
@@ -213,7 +214,8 @@ def cmd_discover() -> None:
     click.echo(f"Lade {len(config.searches)} Sucheinträge …")
     master_yaml_text = paths.master_profile.read_text(encoding="utf-8")
     state = load_state(paths.state_json)
-    llm = LLMClient()
+    llm = LLMClient.for_scoring()  # Klassifikation pro Job - gpt-5.1-mini reicht
+    click.echo(f"  Scoring-Modell: {llm.model}")
     discover(config, state=state, master_yaml_text=master_yaml_text, llm=llm)
     save_state(paths.state_json, state)
 
