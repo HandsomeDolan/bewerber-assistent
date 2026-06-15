@@ -174,6 +174,7 @@ tr.expanded + tr.detail { display: table-row; }
   <thead><tr>
     <th data-sort="score">Score</th>
     <th data-sort="status">Status</th>
+    <th data-sort="applied_date">Beworben am</th>
     <th data-sort="company">Firma</th>
     <th data-sort="title">Titel</th>
     <th data-sort="location">Ort</th>
@@ -216,6 +217,7 @@ function applyFilters() {
     let av, bv;
     if (key === "score") { av = (a.scoring && a.scoring.fit_score) || 0; bv = (b.scoring && b.scoring.fit_score) || 0; }
     else if (key === "posted_date") { av = a.raw.posted_date || ""; bv = b.raw.posted_date || ""; }
+    else if (key === "applied_date") { av = appliedDate(a); bv = appliedDate(b); }
     else if (key === "board") { av = a.raw.board; bv = b.raw.board; }
     else if (key === "title" || key === "company" || key === "location") { av = a.raw[key] || ""; bv = b.raw[key] || ""; }
     else { av = a[key] || ""; bv = b[key] || ""; }
@@ -233,6 +235,7 @@ function renderRows(rows) {
     tr.innerHTML = `
       <td class="score score-${score}">${score || "—"}</td>
       <td><span class="status status-${r.status}">${r.status}</span></td>
+      <td>${appliedDate(r) || "—"}</td>
       <td>${escapeHtml(r.raw.company)}</td>
       <td>${escapeHtml(r.raw.title)}</td>
       <td>${escapeHtml(r.raw.location)}</td>
@@ -244,7 +247,7 @@ function renderRows(rows) {
 
     const detail = document.createElement("tr");
     detail.className = "detail";
-    detail.innerHTML = `<td colspan="7">${detailHtml(r)}</td>`;
+    detail.innerHTML = `<td colspan="8">${detailHtml(r)}</td>`;
     detail.style.display = "none";
     tbody.appendChild(detail);
   }
@@ -318,6 +321,16 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+
+// Liefert das Datum (YYYY-MM-DD) des ersten "applied"-Eintrags aus status_history,
+// oder "" falls noch nie als "beworben" markiert.
+function appliedDate(r) {
+  const hist = r.status_history || [];
+  for (const h of hist) {
+    if (h.status === "applied" && h.at) return String(h.at).slice(0, 10);
+  }
+  return "";
+}
 
 const WORKSPACE = {{ workspace_path | tojson }};
 const IS_HTTP = window.location.protocol.startsWith("http");
