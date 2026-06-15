@@ -151,6 +151,45 @@ def test_snapshot_url_writes_files_and_uses_domcontentloaded(tmp_path, mocker):
     assert "Chrome" in fake_browser.new_context.call_args.kwargs["user_agent"]
 
 
+def test_snapshot_falls_back_to_requests_on_playwright_crash(tmp_path, mocker):
+    """Wenn Playwright crashed, soll snapshot_url auf requests.get ausweichen."""
+    long_article = "<html><body><article>" + "Job Beschreibung " * 60 + "</article></body></html>"
+
+    # Playwright wirft direkt beim Context-Entry
+    crashing_ctx = mocker.MagicMock()
+    crashing_ctx.__enter__.side_effect = RuntimeError("Page.content: Target crashed")
+    mocker.patch("bewerber.tailoring.snapshot.sync_playwright", return_value=crashing_ctx)
+
+    # requests.get liefert sauberes HTML
+    fake_resp = mocker.Mock()
+    fake_resp.text = long_article
+    fake_resp.raise_for_status = mocker.Mock()
+    mocker.patch("bewerber.tailoring.snapshot.requests.get", return_value=fake_resp)
+
+    text = snapshot_url("https://linkedin.com/jobs/view/42", tmp_path)
+    assert "Job Beschreibung" in text
+    # posting.html geschrieben, posting.pdf NICHT (kein Playwright = kein PDF)
+    assert (tmp_path / "posting.html").is_file()
+    assert not (tmp_path / "posting.pdf").exists()
+
+
+def test_snapshot_raises_when_both_paths_fail(tmp_path, mocker):
+    """Playwright crash + requests liefert leere Seite -> klare Fehlermeldung."""
+    crashing_ctx = mocker.MagicMock()
+    crashing_ctx.__enter__.side_effect = RuntimeError("Target crashed")
+    mocker.patch("bewerber.tailoring.snapshot.sync_playwright", return_value=crashing_ctx)
+
+    # Login wall returnt z.B. nur "Bitte einloggen"
+    fake_resp = mocker.Mock()
+    fake_resp.text = "<html><body>Bitte einloggen, um den Job zu sehen.</body></html>"
+    fake_resp.raise_for_status = mocker.Mock()
+    mocker.patch("bewerber.tailoring.snapshot.requests.get", return_value=fake_resp)
+
+    import pytest
+    with pytest.raises(RuntimeError, match="Beide Snapshot-Wege"):
+        snapshot_url("https://linkedin.com/jobs/view/42", tmp_path)
+
+
 def test_snapshot_tolerates_networkidle_failure(tmp_path, mocker):
     html = "<html><body><article>" + "Job Beschreibung " * 50 + "</article></body></html>"
 

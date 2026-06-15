@@ -11,14 +11,23 @@ Wir versuchen das Banner per Click (Text-Selektor, sprach-agnostisch)
 wegzudruecken, BEVOR wir den HTML-Stand snapshoten. Wenn der Click
 fehlschlaegt, hilft der Content-Extraktor: er bevorzugt <article>- bzw.
 <main>-Container und filtert Texte raus, die nach Consent klingen.
+
+Fallback: Wenn Playwright crashed (z.B. LinkedIn anti-bot triggert
+"Target crashed"), wechseln wir auf einen reinen requests.get-Pfad.
+Damit gibt es keinen PDF-Snapshot, aber wenigstens den Text - die
+nachgelagerten Schritte (Scoring, Customize) brauchen nur den Text.
 """
+import logging
 import re
 from pathlib import Path
 
+import requests
 from lxml import html as lxml_html
 from playwright.sync_api import Page, sync_playwright
 
 from bewerber.discovery.enrich import extract_main_text
+
+log = logging.getLogger(__name__)
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -64,7 +73,25 @@ _CONSENT_KEYWORDS = ("cookie", "akzeptieren", "datenschutz", "tracking", "einwil
 
 
 def snapshot_url(url: str, out_dir: Path, *, timeout_ms: int = DEFAULT_TIMEOUT_MS) -> str:
+    """Try Playwright first; if it crashes/times-out, fall back to requests.
+
+    Returns extracted job text. Writes:
+      - posting.html (immer)
+      - posting.pdf  (nur bei erfolgreichem Playwright-Lauf)
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        return _snapshot_via_playwright(url, out_dir, timeout_ms)
+    except Exception as e:  # noqa: BLE001 - crashes / timeouts / nav errors -> versuche requests
+        log.warning(
+            "[snapshot] Playwright fuer %s fehlgeschlagen (%s). Falle auf requests zurueck.",
+            url, e,
+        )
+        return _snapshot_via_requests(url, out_dir)
+
+
+def _snapshot_via_playwright(url: str, out_dir: Path, timeout_ms: int) -> str:
+    """Primary path: headless Chromium + PDF + extract."""
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         try:
@@ -86,8 +113,33 @@ def snapshot_url(url: str, out_dir: Path, *, timeout_ms: int = DEFAULT_TIMEOUT_M
 
     (out_dir / "posting.html").write_text(html, encoding="utf-8")
     (out_dir / "posting.pdf").write_bytes(pdf_bytes)
-
     return extract_job_text(html)
+
+
+def _snapshot_via_requests(url: str, out_dir: Path, *, timeout_s: int = 20) -> str:
+    """Fallback: plain HTTP GET + readability/article extraction.
+
+    Kein PDF. Funktioniert nur fuer Seiten ohne JS-Pflicht, kann an Login-Walls
+    scheitern. Die nachgelagerte LLM-Pipeline kommt auch ohne PDF aus.
+    """
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "de,en;q=0.7",
+    }
+    resp = requests.get(url, headers=headers, timeout=timeout_s, allow_redirects=True)
+    resp.raise_for_status()
+    html = resp.text
+    (out_dir / "posting.html").write_text(html, encoding="utf-8")
+    text = extract_job_text(html)
+    if not text or len(text) < 100:
+        raise RuntimeError(
+            f"Beide Snapshot-Wege ergaben zu wenig Text fuer {url} "
+            f"(Playwright crashed, requests lieferte {len(text or '')} Zeichen - "
+            f"vermutlich Login-Wall). Kopier den Job-Text manuell und benutze "
+            f"den --posting-file-Modus."
+        )
+    return text
 
 
 def _try_dismiss_consent(page: Page) -> None:
