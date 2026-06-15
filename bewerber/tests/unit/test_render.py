@@ -92,6 +92,17 @@ def test_render_lebenslauf_without_zielposition_falls_back_to_default():
     assert "Projekt- und Prozessmanager" in text
 
 
+def test_lebenslauf_has_keep_with_next_rule_for_section_dividers():
+    """Regression: ohne `.section-divider + *` Regel landet die Ueberschrift
+    'DETAILLIERTE PROJEKTERFAHRUNG' allein am Seitenende, wenn der erste
+    Projektblock nicht mehr in den Restplatz passt."""
+    from bewerber.tailoring.render import _lebenslauf_html
+    html = _lebenslauf_html(_profile(), _customized())
+    # Beide Halbsaetze der Keep-with-next-Regel muessen vorhanden sein
+    assert ".section-divider +" in html, "Sibling-Selector fehlt im Template-CSS"
+    assert "page-break-before: avoid" in html, "page-break-before-Property fehlt"
+
+
 def test_render_anschreiben_returns_pdf_bytes():
     anschreiben = AnschreibenContent(
         anrede="Sehr geehrte Damen und Herren,",

@@ -91,10 +91,21 @@ ul.bullets li { margin-bottom: 2pt; }
 .zertifikate-list li { font-weight: 700; margin: 3pt 0; }
 
 /* === Page-break protection === */
-/* Section dividers must never end up alone at the bottom of a page */
+/* Section dividers must never end up alone at the bottom of a page.
+   `break-after: avoid` allein ist nur ein Hint, den WeasyPrint
+   verwirft wenn der naechste Bruder ein `page-break-inside: avoid` hat
+   und nicht in den Restplatz passt. Wir setzen daher BEIDES:
+   - break-after auf den Divider
+   - break-before auf das Element direkt danach
+   Dadurch wird der Divider zwingend mit der ersten Folge-Section
+   verschoben, anstatt orphaned am Seitenende zu landen. */
 .section-divider {
   page-break-after: avoid;
   break-after: avoid;
+}
+.section-divider + * {
+  page-break-before: avoid;
+  break-before: avoid;
 }
 /* A heading must stay with at least the first line of its content */
 .werdegang-title, .projektstelle-header, .projektblock-title, .projektstelle-period {
