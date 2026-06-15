@@ -53,6 +53,20 @@ tr.expanded + tr.detail { display: table-row; }
 }
 .tailor-form label { font-size: 11px; color: #333; display: flex; flex-direction: column; }
 .tailor-form .req-mark { color: #c33; margin-left: 2px; }
+.tailor-form .label-text { display: inline-block; font-weight: 600; }
+.desc-toggle {
+  background: none; border: none; padding: 0 4px;
+  color: #2266cc; cursor: pointer; font: inherit; font-size: 12px;
+  text-decoration: underline;
+}
+.desc-toggle:hover { color: #1a55b3; }
+.arbeitsmodell-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px;
+  font-size: 10px; font-weight: 600; border-radius: 3px;
+  text-transform: uppercase; letter-spacing: 0.3pt;
+}
+.arbeitsmodell-remote { background: #e6f4ea; color: #1f6d31; border: 1px solid #b8dec3; }
+.arbeitsmodell-hybrid { background: #e8f0fc; color: #1f4e8c; border: 1px solid #b8cee8; }
 .tailor-status { font-size: 12px; margin-left: 10px; }
 .action-btn.primary { background: #2266cc; color: #fff; border-color: #2266cc; font-weight: 600; }
 .action-btn.primary:hover:not(:disabled) { background: #1a55b3; }
@@ -238,7 +252,7 @@ function renderRows(rows) {
       <td>${appliedDate(r) || "—"}</td>
       <td>${escapeHtml(r.raw.company)}</td>
       <td>${escapeHtml(r.raw.title)}</td>
-      <td>${escapeHtml(r.raw.location)}</td>
+      <td>${escapeHtml(r.raw.location)}${arbeitsmodellBadge(r.raw.arbeitsmodell)}</td>
       <td>${escapeHtml(r.raw.board)}</td>
       <td>${r.raw.posted_date || "—"}</td>
     `;
@@ -282,11 +296,11 @@ function detailHtml(r) {
   const matchedSk = (scoring.matched_skills || []).map(s => `<code>${escapeHtml(s)}</code>`).join(", ");
   const missingSk = (scoring.missing_skills || []).map(s => `<code>${escapeHtml(s)}</code>`).join(", ");
   const flags = (scoring.red_flags || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
-  const desc = r.raw.description ? escapeHtml(r.raw.description).slice(0, 800) + (r.raw.description.length > 800 ? "…" : "") : "<em>keine Beschreibung</em>";
+  const desc = buildDescriptionHtml(r.raw.description, r.jid);
   const tailorBtn = r.tailored_dir
     ? `<span class="muted">✔ Bereits getailored - <a href="file://${r.tailored_dir}">Ordner öffnen</a></span>`
     : `<div class="tailor-form" onclick="event.stopPropagation()">
-         <label>Starttermin<span class="req-mark">*</span>
+         <label><span class="label-text">Starttermin<span class="req-mark">*</span></span>
            <input type="text" id="start-${r.jid}" placeholder="z. B. ab sofort, 2026-08-01"
                   oninput="updateTailorBtn('${r.jid}')">
          </label>
@@ -330,6 +344,37 @@ function appliedDate(r) {
     if (h.status === "applied" && h.at) return String(h.at).slice(0, 10);
   }
   return "";
+}
+
+const DESC_PREVIEW_CHARS = 800;
+function buildDescriptionHtml(desc, jid) {
+  if (!desc) return "<em>keine Beschreibung</em>";
+  const safe = escapeHtml(desc);
+  if (safe.length <= DESC_PREVIEW_CHARS) return safe;
+  const short = safe.slice(0, DESC_PREVIEW_CHARS);
+  return (
+    `<span class="desc-short">${short}…</span>` +
+    `<span class="desc-full" style="display:none;">${safe}</span>` +
+    ` <button class="desc-toggle" onclick="toggleDesc('${jid}', event)">Mehr lesen</button>`
+  );
+}
+function arbeitsmodellBadge(value) {
+  if (!value) return "";
+  return ` <span class="arbeitsmodell-badge arbeitsmodell-${value}">${value}</span>`;
+}
+
+function toggleDesc(jid, evt) {
+  evt.stopPropagation();
+  const detail = document.querySelector(`tr[data-jid="${jid}"] + tr.detail`);
+  if (!detail) return;
+  const short = detail.querySelector(".desc-short");
+  const full = detail.querySelector(".desc-full");
+  const btn = detail.querySelector(".desc-toggle");
+  if (!short || !full || !btn) return;
+  const showingFull = full.style.display !== "none";
+  short.style.display = showingFull ? "" : "none";
+  full.style.display = showingFull ? "none" : "";
+  btn.textContent = showingFull ? "Mehr lesen" : "Weniger anzeigen";
 }
 
 const WORKSPACE = {{ workspace_path | tojson }};

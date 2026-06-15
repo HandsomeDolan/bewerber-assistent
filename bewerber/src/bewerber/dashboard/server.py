@@ -220,6 +220,7 @@ class _Handler(BaseHTTPRequestHandler):
         external_id = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
         job_id = f"manual-{external_id}"
 
+        from bewerber.discovery.enrich import extract_arbeitsmodell
         raw = RawJob(
             board="manual",
             external_id=external_id,
@@ -228,6 +229,7 @@ class _Handler(BaseHTTPRequestHandler):
             company=firma,
             location="",
             description=posting_text,
+            arbeitsmodell=extract_arbeitsmodell(posting_text),
         )
         enriched = enrich_job(raw)
 

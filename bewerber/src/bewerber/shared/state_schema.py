@@ -18,7 +18,7 @@ class JobStatus(str, Enum):
 class RawJob(BaseModel):
     """A job posting as fetched from a board. Description may be None until enriched."""
     model_config = ConfigDict(extra="forbid")
-    board: str  # "arbeitsagentur" | "linkedin" | "indeed"
+    board: str  # "arbeitsagentur" | "linkedin" | "indeed" | "manual"
     external_id: str
     url: str
     title: str
@@ -27,6 +27,9 @@ class RawJob(BaseModel):
     posted_date: Optional[date] = None
     description: Optional[str] = None
     description_hash: Optional[str] = None
+    # Aus der Beschreibung extrahiertes Arbeitsmodell: "remote" oder "hybrid".
+    # None = nichts erkannt oder klassisch vor Ort (wird im UI nicht angezeigt).
+    arbeitsmodell: Optional[str] = None
 
 
 class Scoring(BaseModel):
