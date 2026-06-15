@@ -2,6 +2,9 @@
 
 Endpoints:
     GET  /                  -> rendered dashboard.html (live state)
+    GET  /searches          -> rendered searches.html (editor UI)
+    GET  /api/searches      -> current searches.yaml as JSON
+    POST /api/searches      -> validate (SearchesConfig) + atomically rewrite searches.yaml
     POST /api/mark          -> body {job_id, status, application_link?, interview_at?}
                                updates state.json + status_history, returns {ok: true}
     POST /api/note          -> body {job_id, text}
@@ -16,16 +19,21 @@ Designed for personal local use; not hardened for multi-user / public exposure.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Optional
 
+import yaml
+from pydantic import ValidationError
+
+from bewerber.discovery.searches import SearchesConfig
 from bewerber.shared.paths import Paths
 from bewerber.shared.state import load_state, save_state
 from bewerber.shared.state_schema import JobStatus, StatusHistoryEntry
-from bewerber.dashboard.render import render_dashboard
+from bewerber.dashboard.render import render_dashboard, render_searches_editor
 
 
 def _now_iso() -> str:
@@ -78,6 +86,13 @@ class _Handler(BaseHTTPRequestHandler):
             state = load_state(self.paths.state_json)
             self._send_html(render_dashboard(state))
             return
+        if self.path == "/searches":
+            self._send_html(render_searches_editor(_load_searches_config(self.paths)))
+            return
+        if self.path == "/api/searches":
+            cfg = _load_searches_config(self.paths)
+            self._send_json(200, cfg.model_dump())
+            return
         self._send_json(404, {"error": "not found", "path": self.path})
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib API
@@ -88,10 +103,22 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_note()
             elif self.path == "/api/open-folder":
                 self._handle_open_folder()
+            elif self.path == "/api/searches":
+                self._handle_save_searches()
             else:
                 self._send_json(404, {"error": "unknown endpoint"})
         except Exception as e:  # noqa: BLE001
             self._send_json(500, {"error": str(e)})
+
+    def _handle_save_searches(self) -> None:
+        body = self._read_json()
+        try:
+            cfg = SearchesConfig.model_validate(body)
+        except ValidationError as ve:
+            self._send_json(400, {"error": _format_validation_error(ve)})
+            return
+        _save_searches_atomic(self.paths.bewerber_dir / "searches.yaml", cfg)
+        self._send_json(200, {"ok": True, "searches": len(cfg.searches)})
 
     def _handle_mark(self) -> None:
         body = self._read_json()
@@ -152,6 +179,38 @@ class _Handler(BaseHTTPRequestHandler):
             return
         ok = _open_folder_macos(path)
         self._send_json(200 if ok else 500, {"ok": ok})
+
+
+def _load_searches_config(paths: Paths) -> SearchesConfig:
+    """Load searches.yaml; return empty SearchesConfig when missing."""
+    p = paths.bewerber_dir / "searches.yaml"
+    if not p.is_file():
+        return SearchesConfig()
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    return SearchesConfig.model_validate(data)
+
+
+def _save_searches_atomic(path: Path, cfg: SearchesConfig) -> None:
+    """Atomically rewrite searches.yaml (temp file + os.replace)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    yaml_text = yaml.safe_dump(
+        cfg.model_dump(),
+        allow_unicode=True,
+        sort_keys=False,
+        default_flow_style=False,
+    )
+    tmp.write_text(yaml_text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _format_validation_error(ve: ValidationError) -> str:
+    """Render a pydantic ValidationError into a multi-line message for the UI."""
+    lines = []
+    for err in ve.errors():
+        loc = ".".join(str(x) for x in err.get("loc", []))
+        lines.append(f"{loc or '(root)'}: {err.get('msg', 'invalid')}")
+    return "\n".join(lines)
 
 
 def make_handler(paths: Paths) -> type[_Handler]:

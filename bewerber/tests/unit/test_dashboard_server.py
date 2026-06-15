@@ -129,3 +129,104 @@ def test_open_folder_path_not_exists_returns_404(running_server):
 def test_unknown_endpoint_returns_404(running_server):
     code, body = _post_json(running_server, "/api/bogus", {})
     assert code == 404
+
+
+# ---------------------------------------------------------------------------
+# Searches editor endpoints
+# ---------------------------------------------------------------------------
+
+def test_get_searches_returns_empty_when_yaml_missing(running_server, tmp_path):
+    """No searches.yaml on disk -> defaults to empty SearchesConfig."""
+    code, body = _get(running_server, "/api/searches")
+    assert code == 200
+    cfg = json.loads(body)
+    assert cfg["searches"] == []
+    assert cfg["defaults"]["locations"] == []
+    assert cfg["defaults"]["exclude_keywords"] == []
+
+
+def test_get_searches_returns_existing_yaml(running_server, tmp_path):
+    """API echoes whatever's currently in searches.yaml."""
+    import yaml
+    (tmp_path / "bewerber" / "searches.yaml").write_text(yaml.safe_dump({
+        "defaults": {"locations": ["Leipzig"], "exclude_keywords": ["SPS"]},
+        "searches": [{
+            "name": "KI",
+            "keywords": ["KI Manager"],
+            "boards": ["arbeitsagentur"],
+            "exclude_keywords": ["Vertrieb"],
+        }],
+    }))
+    code, body = _get(running_server, "/api/searches")
+    assert code == 200
+    cfg = json.loads(body)
+    assert cfg["defaults"]["exclude_keywords"] == ["SPS"]
+    assert cfg["searches"][0]["name"] == "KI"
+    assert cfg["searches"][0]["exclude_keywords"] == ["Vertrieb"]
+
+
+def test_post_searches_persists_atomically(running_server, tmp_path):
+    """Valid POST writes a well-formed searches.yaml."""
+    new_cfg = {
+        "defaults": {
+            "locations": ["Leipzig", "Remote"],
+            "date_posted_max_days": 21,
+            "min_fit_score": 6,
+            "exclude_keywords": ["SPS", "PLS"],
+        },
+        "searches": [{
+            "name": "AI Consulting",
+            "keywords": ["AI Consultant", "KI Berater"],
+            "boards": ["arbeitsagentur", "linkedin"],
+            "exclude_keywords": [],
+        }],
+    }
+    code, body = _post_json(running_server, "/api/searches", new_cfg)
+    assert code == 200, body
+    assert body["ok"] is True
+    assert body["searches"] == 1
+
+    # File on disk reflects what was sent
+    import yaml
+    written = yaml.safe_load((tmp_path / "bewerber" / "searches.yaml").read_text())
+    assert written["defaults"]["exclude_keywords"] == ["SPS", "PLS"]
+    assert written["searches"][0]["name"] == "AI Consulting"
+    assert written["searches"][0]["boards"] == ["arbeitsagentur", "linkedin"]
+
+    # No leftover .tmp from the atomic write
+    assert not (tmp_path / "bewerber" / "searches.yaml.tmp").exists()
+
+
+def test_post_searches_validation_error_returns_400(running_server, tmp_path):
+    """Invalid board literal -> 400 with structured error message."""
+    bad = {
+        "searches": [{
+            "name": "X",
+            "keywords": ["x"],
+            "boards": ["facebook"],  # not in VALID_BOARDS
+        }],
+    }
+    code, body = _post_json(running_server, "/api/searches", bad)
+    assert code == 400
+    # Error should mention the invalid field path
+    assert "boards" in body["error"]
+    # File should NOT have been overwritten
+    assert not (tmp_path / "bewerber" / "searches.yaml").exists()
+
+
+def test_post_searches_extra_field_rejected(running_server, tmp_path):
+    """Pydantic extra='forbid' surfaces unknown fields as 400."""
+    bad = {
+        "defaults": {"bogus_field": 123},
+        "searches": [],
+    }
+    code, body = _post_json(running_server, "/api/searches", bad)
+    assert code == 400
+
+
+def test_get_searches_html_page_renders(running_server):
+    """/searches returns the editor HTML."""
+    code, body = _get(running_server, "/searches")
+    assert code == 200
+    assert "Suchkonfiguration" in body
+    assert "initial-config" in body  # embedded JSON script tag

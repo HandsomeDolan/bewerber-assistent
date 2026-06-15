@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Suchkonfiguration - Bewerber</title>
+<style>
+  body { font-family: "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 0; background: #f7f8fa; color: #222; }
+  header { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #ddd; padding: 12px 24px; display: flex; align-items: center; gap: 24px; z-index: 10; }
+  header h1 { margin: 0; font-size: 18px; flex: 1; }
+  header a.back { color: #555; text-decoration: none; font-size: 14px; }
+  header a.back:hover { color: #000; }
+  .toolbar { display: flex; gap: 8px; }
+  button { font: inherit; padding: 6px 14px; border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer; }
+  button:hover:not(:disabled) { background: #f0f0f0; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: #2266cc; color: #fff; border-color: #2266cc; font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: #1a55b3; }
+  button.danger { color: #c33; border-color: #d8a0a0; }
+  button.danger:hover { background: #fdf0f0; }
+  main { max-width: 980px; margin: 24px auto; padding: 0 16px; }
+  section { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 18px 22px; margin-bottom: 20px; }
+  section h2 { margin: 0 0 14px 0; font-size: 16px; border-bottom: 1px solid #eee; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+  label.field { display: block; margin: 12px 0; font-size: 13px; color: #444; }
+  label.field > span { display: block; margin-bottom: 4px; font-weight: 600; color: #333; }
+  label.field > small { display: block; font-weight: normal; color: #888; font-size: 11px; margin-bottom: 4px; }
+  input[type="text"], input[type="number"], textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font: inherit; font-size: 13px; }
+  textarea { font-family: ui-monospace, "SF Mono", Menlo, monospace; resize: vertical; min-height: 60px; }
+  input.invalid, textarea.invalid { border-color: #c33; background: #fef5f5; }
+  .row { display: flex; gap: 12px; align-items: flex-start; }
+  .row > label.field { flex: 1; }
+  .search-card { border: 1px solid #d8d8d8; border-radius: 5px; padding: 14px 18px; margin: 14px 0; background: #fcfcfc; }
+  .search-card .head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .search-card .head input.name { flex: 1; font-weight: 600; font-size: 14px; }
+  .boards { display: flex; gap: 14px; margin-top: 4px; }
+  .boards label { font-size: 13px; cursor: pointer; }
+  .empty-state { padding: 24px; text-align: center; color: #888; font-style: italic; }
+  #status { padding: 10px 16px; border-radius: 4px; margin-bottom: 16px; display: none; }
+  #status.ok { display: block; background: #e8f7ec; color: #1a5b2b; border: 1px solid #b8e0c2; }
+  #status.error { display: block; background: #fde9e9; color: #8a1a1a; border: 1px solid #f3b0b0; white-space: pre-wrap; }
+  .dirty-flag { color: #c84; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/">← Dashboard</a>
+  <h1>Suchkonfiguration <span id="dirty" class="dirty-flag" style="display:none;"> (ungespeicherte Aenderungen)</span></h1>
+  <div class="toolbar">
+    <button id="reload-btn" title="Aenderungen verwerfen">↺ Neu laden</button>
+    <button id="save-btn" class="primary" disabled>💾 Speichern</button>
+  </div>
+</header>
+
+<main>
+  <div id="status"></div>
+
+  <section id="defaults-section">
+    <h2>Globale Einstellungen</h2>
+    <div class="row">
+      <label class="field">
+        <span>Standorte</span>
+        <small>Eine pro Zeile. Wird auf jede Suche angewendet.</small>
+        <textarea data-path="defaults.locations" rows="3" placeholder="Leipzig&#10;Berlin&#10;Remote"></textarea>
+      </label>
+      <label class="field" style="flex:0 0 200px;">
+        <span>Max. Tage seit Posting</span>
+        <small>1-90</small>
+        <input type="number" data-path="defaults.date_posted_max_days" min="1" max="90" value="14">
+      </label>
+    </div>
+    <label class="field">
+      <span>Globale Ausschluss-Keywords</span>
+      <small>Eine pro Zeile. Wortgrenze, case-insensitive. Matched gegen Titel + Firma. "PLS" filtert "PLS Engineer", aber NICHT "PLSQL Developer".</small>
+      <textarea data-path="defaults.exclude_keywords" rows="3" placeholder="SPS&#10;PLS"></textarea>
+    </label>
+  </section>
+
+  <section id="searches-section">
+    <h2>
+      Suchen
+      <button id="add-btn">+ Suche hinzufuegen</button>
+    </h2>
+    <div id="searches-list">
+      <div class="empty-state">Noch keine Suchen konfiguriert. Klick auf "Suche hinzufuegen".</div>
+    </div>
+  </section>
+</main>
+
+<template id="search-card-template">
+  <div class="search-card">
+    <div class="head">
+      <input type="text" class="name" placeholder="Name der Suche (z.B. KI Manager)" required>
+      <button class="dup-btn" type="button" title="Duplizieren">⎘</button>
+      <button class="del-btn danger" type="button" title="Loeschen">×</button>
+    </div>
+    <label class="field">
+      <span>Suchbegriffe</span>
+      <small>Eine pro Zeile. Werden bei den Job-Boards als Suchanfrage verwendet.</small>
+      <textarea class="keywords" rows="4" placeholder="KI Manager&#10;AI Product Manager"></textarea>
+    </label>
+    <div class="row">
+      <fieldset class="field" style="border:1px solid #eee; padding:8px 12px; border-radius:4px; flex:1;">
+        <legend style="font-weight:600; padding:0 6px; font-size:13px;">Boards</legend>
+        <div class="boards">
+          <label><input type="checkbox" class="board" value="arbeitsagentur"> Arbeitsagentur</label>
+          <label><input type="checkbox" class="board" value="linkedin"> LinkedIn</label>
+          <label><input type="checkbox" class="board" value="indeed"> Indeed</label>
+        </div>
+      </fieldset>
+    </div>
+    <label class="field">
+      <span>Ausschluss-Keywords (zusaetzlich zu den globalen)</span>
+      <small>Eine pro Zeile. Nur fuer DIESE Suche.</small>
+      <textarea class="exclude" rows="2" placeholder="Vertrieb"></textarea>
+    </label>
+  </div>
+</template>
+
+<script id="initial-config" type="application/json">{{ config_json }}</script>
+<script>
+const VALID_BOARDS = ["arbeitsagentur", "linkedin", "indeed"];
+let initialConfig = JSON.parse(document.getElementById("initial-config").textContent);
+let dirty = false;
+
+function linesToList(s) {
+  return (s || "").split("\n").map(l => l.trim()).filter(Boolean);
+}
+function listToLines(arr) {
+  return Array.isArray(arr) ? arr.join("\n") : "";
+}
+function setDirty(v) {
+  dirty = v;
+  document.getElementById("dirty").style.display = v ? "" : "none";
+  document.getElementById("save-btn").disabled = !v;
+}
+function setStatus(kind, msg) {
+  const el = document.getElementById("status");
+  el.className = kind;
+  el.textContent = msg;
+  if (!msg) el.style.display = "none";
+}
+
+function renderConfig(cfg) {
+  // Defaults
+  document.querySelector('[data-path="defaults.locations"]').value =
+    listToLines(cfg.defaults && cfg.defaults.locations);
+  document.querySelector('[data-path="defaults.date_posted_max_days"]').value =
+    (cfg.defaults && cfg.defaults.date_posted_max_days) ?? 14;
+  document.querySelector('[data-path="defaults.exclude_keywords"]').value =
+    listToLines(cfg.defaults && cfg.defaults.exclude_keywords);
+
+  // Searches
+  const list = document.getElementById("searches-list");
+  list.innerHTML = "";
+  if (!cfg.searches || cfg.searches.length === 0) {
+    list.innerHTML = '<div class="empty-state">Noch keine Suchen konfiguriert.</div>';
+    return;
+  }
+  cfg.searches.forEach(s => list.appendChild(buildSearchCard(s)));
+}
+
+function buildSearchCard(search) {
+  const tpl = document.getElementById("search-card-template");
+  const node = tpl.content.firstElementChild.cloneNode(true);
+  node.querySelector(".name").value = search.name || "";
+  node.querySelector(".keywords").value = listToLines(search.keywords);
+  node.querySelector(".exclude").value = listToLines(search.exclude_keywords);
+  const boards = new Set(search.boards || []);
+  node.querySelectorAll(".board").forEach(cb => { cb.checked = boards.has(cb.value); });
+
+  node.querySelector(".del-btn").addEventListener("click", () => {
+    if (confirm(`Suche "${node.querySelector(".name").value || "(unbenannt)"}" loeschen?`)) {
+      node.remove();
+      setDirty(true);
+      ensureEmptyState();
+    }
+  });
+  node.querySelector(".dup-btn").addEventListener("click", () => {
+    const copy = collectCardData(node);
+    copy.name = (copy.name || "Neue Suche") + " (Kopie)";
+    node.parentNode.insertBefore(buildSearchCard(copy), node.nextSibling);
+    setDirty(true);
+  });
+
+  return node;
+}
+
+function ensureEmptyState() {
+  const list = document.getElementById("searches-list");
+  if (list.querySelectorAll(".search-card").length === 0) {
+    list.innerHTML = '<div class="empty-state">Noch keine Suchen konfiguriert.</div>';
+  }
+}
+
+function collectCardData(card) {
+  return {
+    name: card.querySelector(".name").value.trim(),
+    keywords: linesToList(card.querySelector(".keywords").value),
+    boards: Array.from(card.querySelectorAll(".board:checked")).map(cb => cb.value),
+    exclude_keywords: linesToList(card.querySelector(".exclude").value),
+  };
+}
+
+function collectFormConfig() {
+  return {
+    defaults: {
+      locations: linesToList(document.querySelector('[data-path="defaults.locations"]').value),
+      date_posted_max_days: parseInt(document.querySelector('[data-path="defaults.date_posted_max_days"]').value, 10) || 14,
+      exclude_keywords: linesToList(document.querySelector('[data-path="defaults.exclude_keywords"]').value),
+    },
+    searches: Array.from(document.querySelectorAll(".search-card")).map(collectCardData),
+  };
+}
+
+document.getElementById("add-btn").addEventListener("click", () => {
+  const list = document.getElementById("searches-list");
+  const empty = list.querySelector(".empty-state");
+  if (empty) empty.remove();
+  list.appendChild(buildSearchCard({
+    name: "", keywords: [], boards: ["arbeitsagentur"], exclude_keywords: [],
+  }));
+  setDirty(true);
+});
+
+document.getElementById("reload-btn").addEventListener("click", async () => {
+  if (dirty && !confirm("Ungespeicherte Aenderungen verwerfen?")) return;
+  await reloadFromServer();
+});
+
+document.getElementById("save-btn").addEventListener("click", async () => {
+  const cfg = collectFormConfig();
+  setStatus("", "");
+  try {
+    const resp = await fetch("/api/searches", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(cfg),
+    });
+    const body = await resp.json();
+    if (!resp.ok) {
+      setStatus("error", "Validierungs-Fehler: " + (body.error || JSON.stringify(body)));
+      return;
+    }
+    initialConfig = cfg;
+    setDirty(false);
+    setStatus("ok", "✓ Gespeichert. Diese Konfiguration gilt beim naechsten `bewerber discover`-Lauf.");
+  } catch (e) {
+    setStatus("error", "Netzfehler: " + e.message);
+  }
+});
+
+async function reloadFromServer() {
+  try {
+    const resp = await fetch("/api/searches");
+    const cfg = await resp.json();
+    initialConfig = cfg;
+    renderConfig(cfg);
+    setDirty(false);
+    setStatus("", "");
+  } catch (e) {
+    setStatus("error", "Konnte Konfiguration nicht laden: " + e.message);
+  }
+}
+
+document.addEventListener("input", e => {
+  if (e.target.closest("main")) setDirty(true);
+});
+document.addEventListener("change", e => {
+  if (e.target.closest("main")) setDirty(true);
+});
+
+window.addEventListener("beforeunload", e => {
+  if (dirty) { e.preventDefault(); e.returnValue = ""; }
+});
+
+renderConfig(initialConfig);
+setDirty(false);
+</script>
+</body>
+</html>
