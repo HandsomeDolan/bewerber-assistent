@@ -35,6 +35,38 @@ T = TypeVar("T", bound=BaseModel)
 log = logging.getLogger(__name__)
 
 
+_GEMINI_DROP_KEYS = frozenset({
+    # Gemini's response_schema lehnt diese ab, obwohl pydantic sie emittiert:
+    "additionalProperties",  # aus extra='forbid'
+    "title",                 # pydantic schreibt fuer jedes Feld eines
+    "default",
+    "$defs",
+    "$ref",                  # Refs MUESSEN inlined sein (pydantic v2 tut das
+                             # in der Regel - falls nicht, schlaegt es spaeter
+                             # mit einer klareren Meldung fehl)
+    "examples",
+    "discriminator",
+    "patternProperties",
+})
+
+
+def _sanitize_schema_for_gemini(node: Any) -> Any:
+    """Recursively strip JSON Schema keys that Gemini's response_schema doesn't accept.
+
+    Operates on the dict returned by `model.model_json_schema()`. Leaves
+    types/structure alone; nur einzelne Keys werden gedroppt.
+    """
+    if isinstance(node, dict):
+        return {
+            k: _sanitize_schema_for_gemini(v)
+            for k, v in node.items()
+            if k not in _GEMINI_DROP_KEYS
+        }
+    if isinstance(node, list):
+        return [_sanitize_schema_for_gemini(item) for item in node]
+    return node
+
+
 class LLMQuotaExhausted(Exception):
     """Provider's quota is gone. Move on to the next provider."""
 
@@ -128,9 +160,12 @@ class OpenAIProvider(_Provider):
 class GeminiProvider(_Provider):
     """Google Gemini provider via the `google-genai` SDK.
 
-    Structured outputs use Gemini's native `response_schema` when the pydantic
-    schema is supported; for complex schemas, the SDK silently falls back to
-    JSON-mode and we re-validate via `schema.model_validate_json(resp.text)`.
+    Structured outputs werden als sanitized JSON Schema uebergeben (nicht
+    direkt die Pydantic-Klasse): pydantic emittiert `additionalProperties`
+    + `title` ueberall (durch `extra='forbid'`), die Gemini-API lehnt das
+    als INVALID_ARGUMENT ab. _sanitize_schema_for_gemini() entfernt diese
+    Felder rekursiv. Falls trotzdem ein Schema-Fehler kommt, faellt der
+    Code auf reine JSON-Mode-Ausgabe zurueck und parst mit Pydantic.
     """
 
     def __init__(self, *, api_key: str | None = None, model: str, client: Any = None) -> None:
@@ -143,6 +178,7 @@ class GeminiProvider(_Provider):
     def structured(self, *, system: str, user: str, schema: Type[T]) -> T:
         from google.genai import errors as gerrors  # noqa: WPS433
         from google.genai import types as gtypes  # noqa: WPS433
+        sanitized = _sanitize_schema_for_gemini(schema.model_json_schema())
         try:
             resp = self.client.models.generate_content(
                 model=self.model,
@@ -150,16 +186,20 @@ class GeminiProvider(_Provider):
                 config=gtypes.GenerateContentConfig(
                     system_instruction=system,
                     response_mime_type="application/json",
-                    response_schema=schema,
+                    response_schema=sanitized,
                 ),
             )
         except gerrors.ClientError as e:
             self._raise_classified(e)
         except gerrors.ServerError as e:
             raise LLMTransientError(f"{self.name}: {e}") from e
-        # Prefer SDK-parsed object; fall back to JSON-string parse
-        if getattr(resp, "parsed", None) is not None:
-            return resp.parsed  # type: ignore[return-value]
+        # Wir haben ein dict-Schema uebergeben, also liefert resp.parsed ein
+        # dict (kein Pydantic-Objekt). Immer ueber den expliziten Validator.
+        parsed = getattr(resp, "parsed", None)
+        if isinstance(parsed, schema):
+            return parsed
+        if isinstance(parsed, dict):
+            return schema.model_validate(parsed)
         return schema.model_validate_json(resp.text)
 
     def text(self, *, system: str, user: str) -> str:
@@ -212,7 +252,7 @@ class LLMClient:
     """
 
     DEFAULT_MODEL = "gpt-5.1-mini"
-    DEFAULT_GEMINI_MODEL = "gemini-2.0-flash-exp"
+    DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
     DEFAULT_PROVIDER_ORDER = "openai,gemini"
     RETRY_DELAY_S = 1.5
 

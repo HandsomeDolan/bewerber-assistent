@@ -9,12 +9,79 @@ from bewerber.shared.llm import (
     LLMQuotaExhausted,
     LLMTransientError,
     OpenAIProvider,
+    _sanitize_schema_for_gemini,
 )
 
 
 class DummyOut(BaseModel):
     answer: str
     score: int
+
+
+# ---------------------------------------------------------------------------
+# Gemini schema sanitizer
+# ---------------------------------------------------------------------------
+
+def test_sanitize_strips_additional_properties_at_root():
+    schema = {"type": "object", "additionalProperties": False, "properties": {}}
+    out = _sanitize_schema_for_gemini(schema)
+    assert "additionalProperties" not in out
+    assert out["type"] == "object"
+
+
+def test_sanitize_strips_title_and_default():
+    schema = {
+        "type": "object",
+        "title": "Scoring",
+        "default": {},
+        "properties": {
+            "x": {"type": "integer", "title": "X", "default": 0, "minimum": 1},
+        },
+    }
+    out = _sanitize_schema_for_gemini(schema)
+    assert "title" not in out
+    assert "default" not in out
+    assert "title" not in out["properties"]["x"]
+    assert "default" not in out["properties"]["x"]
+    # Allowed fields must remain
+    assert out["properties"]["x"]["minimum"] == 1
+
+
+def test_sanitize_recurses_into_nested_arrays_and_dicts():
+    schema = {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "skills": {
+                    "type": "array",
+                    "items": {"type": "string", "title": "Skill"},
+                },
+            },
+        },
+    }
+    out = _sanitize_schema_for_gemini(schema)
+    assert "additionalProperties" not in out["items"]
+    assert "title" not in out["items"]["properties"]["skills"]["items"]
+
+
+def test_sanitize_actual_scoring_schema_has_no_unsupported_keys():
+    """End-to-end: das echte Scoring-Pydantic-Schema produziert nach
+    Sanitize keinen verbotenen Key mehr."""
+    from bewerber.shared.state_schema import Scoring
+    sanitized = _sanitize_schema_for_gemini(Scoring.model_json_schema())
+
+    def walk(node):
+        if isinstance(node, dict):
+            for k in node:
+                assert k not in {"additionalProperties", "title", "$defs", "default"}
+                walk(node[k])
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(sanitized)
 
 
 # ---------------------------------------------------------------------------
