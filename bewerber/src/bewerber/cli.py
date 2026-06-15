@@ -214,7 +214,7 @@ def cmd_discover() -> None:
     click.echo(f"Lade {len(config.searches)} Sucheinträge …")
     master_yaml_text = paths.master_profile.read_text(encoding="utf-8")
     state = load_state(paths.state_json)
-    llm = LLMClient.for_scoring()  # Klassifikation pro Job - gpt-5.1-mini reicht
+    llm = LLMClient.for_scoring()  # Klassifikation pro Job - gpt-5-mini reicht
     click.echo(f"  Scoring-Modell: {llm.model}")
     discover(config, state=state, master_yaml_text=master_yaml_text, llm=llm)
     save_state(paths.state_json, state)

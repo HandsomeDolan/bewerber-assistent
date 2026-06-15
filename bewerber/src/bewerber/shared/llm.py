@@ -1,7 +1,7 @@
 """LLM client with multi-provider fallback chain.
 
 Default chain (in order):
-  1. OpenAI primary  - OPENAI_API_KEY,          model = BEWERBER_LLM_MODEL or 'gpt-5.1-mini'
+  1. OpenAI primary  - OPENAI_API_KEY,          model = BEWERBER_LLM_MODEL or 'gpt-5-mini'
   2. OpenAI fallback - OPENAI_API_KEY_FALLBACK, same model        (skipped if env unset)
   3. Google Gemini   - GOOGLE_API_KEY,          model = BEWERBER_GEMINI_MODEL or
                                                         'gemini-2.0-flash-exp' (skipped if unset)
@@ -251,7 +251,7 @@ class LLMClient:
     jeweils mit dem jeweils ANDEREN Provider als Notnagel.
     """
 
-    DEFAULT_MODEL = "gpt-5.1-mini"
+    DEFAULT_MODEL = "gpt-5-mini"
     DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
     DEFAULT_PROVIDER_ORDER = "openai,gemini"
     RETRY_DELAY_S = 1.5
