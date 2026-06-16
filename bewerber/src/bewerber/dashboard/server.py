@@ -23,6 +23,12 @@ Endpoints:
                                Triggert serverseitig den vollen Tailor-Lauf
                                (customize + anschreiben + PDF + Anlagen-Copy).
                                Synchron, ~30-60s. Returns {ok, output_dir}.
+    POST /api/batch-tailor  -> body {job_ids: [str, ...], starttermin, gehalt?}
+                               Iteriert ueber alle job_ids, tailored jeden
+                               einzeln mit dem GLEICHEN Starttermin (+Gehalt).
+                               Kontakt-Name wird leer gelassen (zu spezifisch).
+                               Streamt NDJSON-Events (start/done/error/skipped).
+                               Bereits getailorde Jobs werden uebersprungen.
     POST /api/mark          -> body {job_id, status, application_link?, interview_at?}
                                updates state.json + status_history, returns {ok: true}
     POST /api/note          -> body {job_id, text}
@@ -150,6 +156,9 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_notes_set()
             elif self.path == "/api/batch-add-postings":
                 self._handle_batch_add()
+                return  # streaming response already complete
+            elif self.path == "/api/batch-tailor":
+                self._handle_batch_tailor()
                 return  # streaming response already complete
             elif self.path == "/api/failed-urls/clear":
                 self._handle_failed_clear()
@@ -468,6 +477,87 @@ class _Handler(BaseHTTPRequestHandler):
                     save_state(self.paths.state_json, state)
                 except Exception:  # noqa: BLE001
                     pass
+
+        emit({"event": "complete", "total": total})
+
+    def _handle_batch_tailor(self) -> None:
+        """Streaming-Endpoint: tailored mehrere Jobs in einem Rutsch.
+
+        Body: {job_ids: [str, ...], starttermin: str, gehalt?: str}
+        Kontakt_name wird absichtlich NICHT als Batch-Param unterstuetzt -
+        ist pro Stelle individuell.
+        """
+        body = self._read_json()
+        job_ids = body.get("job_ids", [])
+        starttermin = (body.get("starttermin") or "").strip()
+        gehalt = (body.get("gehalt") or "").strip() or None
+        if not isinstance(job_ids, list) or not job_ids:
+            self._send_json(400, {"error": "job_ids (Liste) erforderlich"})
+            return
+        if not starttermin:
+            self._send_json(400, {"error": "starttermin ist erforderlich"})
+            return
+
+        # Streaming-Header
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+        def emit(event: dict) -> None:
+            self.wfile.write((json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8"))
+            self.wfile.flush()
+
+        from datetime import date
+        from bewerber.shared.llm import LLMClient
+        from bewerber.tailoring.orchestrator import TailorInput, tailor
+
+        llm = LLMClient.for_generation()
+        total = len(job_ids)
+        emit({"event": "begin", "total": total})
+
+        for i, jid in enumerate(job_ids):
+            emit({"event": "start", "index": i, "job_id": jid})
+            try:
+                state = load_state(self.paths.state_json)
+                job = state.jobs.get(jid)
+                if job is None:
+                    emit({"event": "error", "index": i, "job_id": jid, "error": "Job nicht in state.json"})
+                    continue
+                if job.tailored_dir:
+                    emit({
+                        "event": "skipped_already_tailored", "index": i,
+                        "job_id": jid, "tailored_dir": job.tailored_dir,
+                        "label": f"{job.raw.title} - {job.raw.company}",
+                    })
+                    continue
+
+                emit({
+                    "event": "label", "index": i,
+                    "label": f"{job.raw.title} - {job.raw.company}",
+                })
+
+                result = tailor(TailorInput(
+                    posting_text=job.raw.description or "",
+                    firma=job.raw.company,
+                    rolle=job.raw.title,
+                    datum=date.today().isoformat(),
+                    kontakt_name=None,  # bewusst leer fuer Batch
+                    source_url=job.raw.url or None,
+                    snapshot_dir=None,
+                    llm=llm,
+                    starttermin=starttermin,
+                    gehalt=gehalt,
+                ))
+                emit({
+                    "event": "done", "index": i,
+                    "job_id": jid, "output_dir": str(result.output_dir),
+                })
+            except Exception as e:  # noqa: BLE001 - eine fehlerhafte URL stoppt nicht den Batch
+                emit({
+                    "event": "error", "index": i,
+                    "job_id": jid, "error": str(e)[:300],
+                })
 
         emit({"event": "complete", "total": total})
 

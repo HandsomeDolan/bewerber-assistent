@@ -114,6 +114,15 @@ tr.expanded + tr.detail { display: table-row; }
 .failed-url-row .url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
 .failed-url-row .err { color: #c33; font-size: 11px; font-style: italic; }
 .failed-url-row button { font-size: 11px; padding: 3px 10px; }
+
+.select-col { width: 32px; text-align: center; }
+.batch-action-bar {
+  background: #e8f0fc; border: 1px solid #b8cee8;
+  padding: 10px 16px; margin: 12px 0; border-radius: 5px;
+  display: flex; align-items: center; gap: 12px;
+  position: sticky; top: 0; z-index: 50;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+}
 .tailor-status { font-size: 12px; margin-left: 10px; }
 .action-btn.primary { background: #2266cc; color: #fff; border-color: #2266cc; font-weight: 600; }
 .action-btn.primary:hover:not(:disabled) { background: #1a55b3; }
@@ -284,8 +293,55 @@ tr.expanded + tr.detail { display: table-row; }
   </select></label>
 </div>
 
+<div id="batch-action-bar" class="batch-action-bar" style="display:none;">
+  <span><b id="batch-selected-count">0</b> Jobs ausgewaehlt</span>
+  <button onclick="clearSelection()" style="background:#fff; border:1px solid #ccc; padding:5px 10px; border-radius:3px; cursor:pointer;">↺ Auswahl aufheben</button>
+  <button onclick="openBatchTailorModal()" style="background:#2266cc; color:#fff; border:1px solid #2266cc; padding:5px 14px; border-radius:3px; cursor:pointer; font-weight:600;">📄 Bewerbungen erstellen</button>
+</div>
+
+<div id="batch-tailor-params-modal" class="batch-modal" style="display:none;">
+  <div class="batch-modal-backdrop" onclick="closeBatchTailorParamsModal()"></div>
+  <div class="batch-modal-content" style="width: 460px;">
+    <h2>Batch-Bewerbungen erstellen</h2>
+    <p class="muted" style="font-size:13px; margin-top:0;">
+      Fuer <b id="batch-tailor-jobcount">0</b> Jobs werden Lebenslauf + Anschreiben
+      erstellt. Starttermin gilt fuer ALLE, Gehalt optional.
+      Bereits getailorde Jobs werden uebersprungen.
+    </p>
+    <label class="field">
+      <span style="display:block; font-weight:600; margin-bottom:4px;">Starttermin <span style="color:#c33;">*</span></span>
+      <input type="text" id="batch-tailor-start" placeholder="z. B. ab sofort, 2026-08-01" required
+             style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:4px;">
+    </label>
+    <label class="field" style="display:block; margin-top:10px;">
+      <span style="display:block; font-weight:600; margin-bottom:4px;">Gehaltsvorstellung <span style="color:#888; font-weight:normal;">(optional)</span></span>
+      <input type="text" id="batch-tailor-gehalt" placeholder="z. B. 65.000 EUR brutto/Jahr"
+             style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:4px;">
+    </label>
+    <div style="margin-top:16px; text-align:right;">
+      <button onclick="closeBatchTailorParamsModal()" style="padding:8px 14px; background:#fff; border:1px solid #ccc; border-radius:4px; cursor:pointer;">Abbrechen</button>
+      <button onclick="startBatchTailor()" style="padding:8px 14px; background:#2266cc; color:#fff; border:1px solid #2266cc; border-radius:4px; cursor:pointer; font-weight:600; margin-left:6px;">▶ Starten</button>
+    </div>
+  </div>
+</div>
+
+<div id="batch-tailor-progress-modal" class="batch-modal" style="display:none;">
+  <div class="batch-modal-backdrop"></div>
+  <div class="batch-modal-content">
+    <h2>Bewerbungen werden erstellt <span id="batch-tailor-summary" class="muted" style="font-weight:normal; font-size:13px;"></span></h2>
+    <div id="batch-tailor-rows"></div>
+    <div style="margin-top:16px; text-align:right;">
+      <button id="batch-tailor-close" onclick="closeBatchTailorProgressModal()" disabled
+              style="padding:8px 16px; border:1px solid #ccc; background:#fff; border-radius:4px; cursor:pointer; font-weight:600;">
+        Schliessen
+      </button>
+    </div>
+  </div>
+</div>
+
 <table id="jobs-table">
   <thead><tr>
+    <th class="select-col"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" title="Sichtbare auswaehlen"></th>
     <th data-sort="score">Score</th>
     <th data-sort="status">Status</th>
     <th data-sort="applied_date">Beworben am</th>
@@ -348,7 +404,13 @@ function renderRows(rows) {
     const score = (r.scoring && r.scoring.fit_score) || 0;
     const tr = document.createElement("tr");
     tr.dataset.jid = r.jid;
+    const alreadyTailored = !!r.tailored_dir;
     tr.innerHTML = `
+      <td class="select-col" onclick="event.stopPropagation()">
+        <input type="checkbox" class="row-select" data-jid="${r.jid}"
+               ${alreadyTailored ? 'disabled title="Bereits getailored"' : ''}
+               onchange="onRowSelectChange(this)">
+      </td>
       <td class="score score-${score}">${score || "—"}</td>
       <td><span class="status status-${r.status}">${statusLabel(r.status)}</span></td>
       <td>${appliedDate(r) || "—"}</td>
@@ -364,7 +426,7 @@ function renderRows(rows) {
 
     const detail = document.createElement("tr");
     detail.className = "detail";
-    detail.innerHTML = `<td colspan="9">${detailHtml(r)}</td>`;
+    detail.innerHTML = `<td colspan="10">${detailHtml(r)}</td>`;
     detail.style.display = "none";
     tbody.appendChild(detail);
   }
@@ -703,6 +765,168 @@ async function createBewerbung(jid, evt) {
     btn.disabled = false;
     btn.textContent = "📄 Bewerbung erstellen";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Batch-Tailor: Auswahl per Checkbox + Sammel-Tailor-Lauf
+// ---------------------------------------------------------------------------
+
+const SELECTED = new Set();
+
+function onRowSelectChange(checkbox) {
+  const jid = checkbox.dataset.jid;
+  if (checkbox.checked) SELECTED.add(jid);
+  else SELECTED.delete(jid);
+  refreshActionBar();
+}
+
+function toggleSelectAll(masterCb) {
+  const checked = masterCb.checked;
+  document.querySelectorAll(".row-select").forEach(cb => {
+    if (cb.disabled) return;
+    cb.checked = checked;
+    if (checked) SELECTED.add(cb.dataset.jid);
+    else SELECTED.delete(cb.dataset.jid);
+  });
+  refreshActionBar();
+}
+
+function clearSelection() {
+  SELECTED.clear();
+  document.querySelectorAll(".row-select").forEach(cb => { cb.checked = false; });
+  const master = document.getElementById("select-all");
+  if (master) master.checked = false;
+  refreshActionBar();
+}
+
+function refreshActionBar() {
+  const bar = document.getElementById("batch-action-bar");
+  const count = SELECTED.size;
+  document.getElementById("batch-selected-count").textContent = count;
+  bar.style.display = count > 0 ? "flex" : "none";
+}
+
+function openBatchTailorModal() {
+  if (SELECTED.size === 0) return;
+  if (!IS_HTTP) {
+    alert("Batch-Tailor geht nur ueber 'bewerber serve' (HTTP).");
+    return;
+  }
+  document.getElementById("batch-tailor-jobcount").textContent = SELECTED.size;
+  document.getElementById("batch-tailor-start").value = "";
+  document.getElementById("batch-tailor-gehalt").value = "";
+  document.getElementById("batch-tailor-params-modal").style.display = "block";
+}
+
+function closeBatchTailorParamsModal() {
+  document.getElementById("batch-tailor-params-modal").style.display = "none";
+}
+
+async function startBatchTailor() {
+  const start = document.getElementById("batch-tailor-start").value.trim();
+  if (!start) { alert("Starttermin ist erforderlich."); return; }
+  const gehalt = document.getElementById("batch-tailor-gehalt").value.trim() || null;
+  const jobIds = Array.from(SELECTED);
+  closeBatchTailorParamsModal();
+
+  // Progress-Modal aufbauen
+  const modal = document.getElementById("batch-tailor-progress-modal");
+  const rowsEl = document.getElementById("batch-tailor-rows");
+  const summary = document.getElementById("batch-tailor-summary");
+  const closeBtn = document.getElementById("batch-tailor-close");
+  rowsEl.innerHTML = "";
+  summary.textContent = `0/${jobIds.length} fertig`;
+  closeBtn.disabled = true;
+  jobIds.forEach((jid, i) => {
+    const job = STATE.jobs[jid];
+    const label = job ? `${job.raw.title} - ${job.raw.company}` : `Job ${i+1}`;
+    const row = document.createElement("div");
+    row.className = "batch-row";
+    row.dataset.index = String(i);
+    row.innerHTML = `
+      <span class="icon">⏳</span>
+      <span class="label">${escapeHtml(label)}</span>
+      <div class="bar-wrap"><div class="bar"></div></div>
+    `;
+    rowsEl.appendChild(row);
+  });
+  modal.style.display = "block";
+
+  const resp = await fetch("/api/batch-tailor", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({job_ids: jobIds, starttermin: start, gehalt}),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    alert("Batch-Tailor konnte nicht gestartet werden: " + (body.error || resp.status));
+    modal.style.display = "none";
+    return;
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let done = 0, errors = 0, skipped = 0;
+  while (true) {
+    const {value, done: streamDone} = await reader.read();
+    if (streamDone) break;
+    buffer += decoder.decode(value, {stream: true});
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const ln of lines) {
+      const t = ln.trim();
+      if (!t) continue;
+      let ev;
+      try { ev = JSON.parse(t); } catch (e) { continue; }
+      handleBatchTailorEvent(ev);
+      if (ev.event === "done") done++;
+      if (ev.event === "error") errors++;
+      if (ev.event === "skipped_already_tailored") skipped++;
+      summary.textContent = `${done + errors + skipped}/${jobIds.length} verarbeitet (${done} neu, ${skipped} bereits getailored, ${errors} Fehler)`;
+    }
+  }
+  closeBtn.disabled = false;
+}
+
+function handleBatchTailorEvent(ev) {
+  const rowsEl = document.getElementById("batch-tailor-rows");
+  const row = rowsEl.querySelector(`.batch-row[data-index="${ev.index}"]`);
+  if (!row && ev.event !== "begin" && ev.event !== "complete") return;
+  const bar = row && row.querySelector(".bar");
+  const icon = row && row.querySelector(".icon");
+  const label = row && row.querySelector(".label");
+
+  switch (ev.event) {
+    case "begin":
+    case "complete":
+      return;
+    case "start":
+      if (bar) bar.style.width = "5%";
+      break;
+    case "label":
+      if (label) label.textContent = ev.label;
+      if (bar) bar.style.width = "20%";
+      break;
+    case "done":
+      row.classList.add("done");
+      if (icon) icon.textContent = "✓";
+      break;
+    case "skipped_already_tailored":
+      row.classList.add("done");
+      if (icon) icon.textContent = "⊘";
+      if (label) label.innerHTML = `<span class="muted">${escapeHtml(ev.label)} (bereits getailored)</span>`;
+      break;
+    case "error":
+      row.classList.add("error");
+      if (icon) icon.textContent = "✗";
+      if (label) label.innerHTML = `${escapeHtml(label.textContent)}<div class="err-msg">${escapeHtml(ev.error)}</div>`;
+      break;
+  }
+}
+
+function closeBatchTailorProgressModal() {
+  document.getElementById("batch-tailor-progress-modal").style.display = "none";
+  window.location.reload();
 }
 
 // ---------------------------------------------------------------------------

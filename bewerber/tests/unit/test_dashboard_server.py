@@ -666,6 +666,157 @@ def test_notes_set_non_string_notes_returns_400(running_server):
     assert code == 400
 
 
+# ---------------------------------------------------------------------------
+# Batch-Tailor (NDJSON stream)
+# ---------------------------------------------------------------------------
+
+def _seed_two_jobs():
+    from bewerber.shared.state_schema import Scoring as _Sc
+    state = BewerberState(jobs={
+        "arbeitsagentur-a": TrackedJob(
+            raw=RawJob(
+                board="arbeitsagentur", external_id="a",
+                url="https://a", title="KI Manager", company="Acme",
+                location="Leipzig", description="job desc A",
+            ),
+            scoring=_Sc(fit_score=7, begruendung="ok", matched_skills=[],
+                        missing_skills=[], red_flags=[], verbessern_in_anschreiben=[]),
+        ),
+        "arbeitsagentur-b": TrackedJob(
+            raw=RawJob(
+                board="arbeitsagentur", external_id="b",
+                url="https://b", title="Senior Consultant", company="Beta",
+                location="Berlin", description="job desc B",
+            ),
+            scoring=_Sc(fit_score=6, begruendung="ok", matched_skills=[],
+                        missing_skills=[], red_flags=[], verbessern_in_anschreiben=[]),
+        ),
+    })
+    save_state(Paths().state_json, state)
+
+
+def test_batch_tailor_streams_ndjson_per_job(running_server, tmp_path, mocker):
+    _seed_two_jobs()
+    fake_tailor = mocker.patch("bewerber.tailoring.orchestrator.tailor")
+    fake_tailor.return_value = mocker.Mock(output_dir=Path("/tmp/out"))
+    mocker.patch("bewerber.shared.llm.LLMClient.for_generation", return_value=mocker.Mock())
+
+    body = {"job_ids": ["arbeitsagentur-a", "arbeitsagentur-b"], "starttermin": "ab sofort"}
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/batch-tailor",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=30)
+    assert resp.status == 200
+    assert resp.headers["Content-Type"].startswith("application/x-ndjson")
+
+    events = [json.loads(ln) for ln in resp.read().decode("utf-8").strip().split("\n") if ln.strip()]
+    assert events[0] == {"event": "begin", "total": 2}
+    assert events[-1] == {"event": "complete", "total": 2}
+
+    starts = [e for e in events if e["event"] == "start"]
+    labels = [e for e in events if e["event"] == "label"]
+    dones = [e for e in events if e["event"] == "done"]
+    assert len(starts) == 2
+    assert len(labels) == 2
+    assert len(dones) == 2
+    # Tailor wurde mit dem richtigen Starttermin gerufen
+    assert fake_tailor.call_count == 2
+    for call in fake_tailor.call_args_list:
+        inp = call.args[0] if call.args else call.kwargs["inp"]
+        assert inp.starttermin == "ab sofort"
+        assert inp.kontakt_name is None  # Batch laesst Kontakt leer
+
+
+def test_batch_tailor_skips_already_tailored(running_server, tmp_path, mocker):
+    _seed_two_jobs()
+    # Job a hat schon tailored_dir
+    state = load_state(Paths().state_json)
+    state.jobs["arbeitsagentur-a"].tailored_dir = "/tmp/already-there"
+    save_state(Paths().state_json, state)
+
+    fake_tailor = mocker.patch("bewerber.tailoring.orchestrator.tailor")
+    fake_tailor.return_value = mocker.Mock(output_dir=Path("/tmp/out"))
+    mocker.patch("bewerber.shared.llm.LLMClient.for_generation", return_value=mocker.Mock())
+
+    body = {"job_ids": ["arbeitsagentur-a", "arbeitsagentur-b"], "starttermin": "ab sofort"}
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/batch-tailor",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=30)
+    events = [json.loads(ln) for ln in resp.read().decode("utf-8").strip().split("\n") if ln.strip()]
+
+    skipped = [e for e in events if e["event"] == "skipped_already_tailored"]
+    dones = [e for e in events if e["event"] == "done"]
+    assert len(skipped) == 1
+    assert skipped[0]["job_id"] == "arbeitsagentur-a"
+    assert len(dones) == 1
+    assert dones[0]["job_id"] == "arbeitsagentur-b"
+    # Tailor nur 1x gerufen
+    assert fake_tailor.call_count == 1
+
+
+def test_batch_tailor_isolates_per_job_errors(running_server, tmp_path, mocker):
+    _seed_two_jobs()
+
+    def tail(inp):
+        if inp.firma == "Acme":
+            raise RuntimeError("LLM quota")
+        return mocker.Mock(output_dir=Path("/tmp/out"))
+
+    mocker.patch("bewerber.tailoring.orchestrator.tailor", side_effect=tail)
+    mocker.patch("bewerber.shared.llm.LLMClient.for_generation", return_value=mocker.Mock())
+
+    body = {"job_ids": ["arbeitsagentur-a", "arbeitsagentur-b"], "starttermin": "ab sofort"}
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/batch-tailor",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=30)
+    events = [json.loads(ln) for ln in resp.read().decode("utf-8").strip().split("\n") if ln.strip()]
+
+    errors = [e for e in events if e["event"] == "error"]
+    dones = [e for e in events if e["event"] == "done"]
+    assert len(errors) == 1
+    assert "LLM quota" in errors[0]["error"]
+    assert len(dones) == 1
+
+
+def test_batch_tailor_rejects_missing_starttermin(running_server):
+    code, body = _post_json(running_server, "/api/batch-tailor", {"job_ids": ["x"]})
+    assert code == 400
+
+
+def test_batch_tailor_rejects_empty_job_ids(running_server):
+    code, body = _post_json(running_server, "/api/batch-tailor", {"job_ids": [], "starttermin": "x"})
+    assert code == 400
+
+
+def test_batch_tailor_unknown_job_emits_error_event(running_server, tmp_path, mocker):
+    _seed_two_jobs()
+    mocker.patch("bewerber.shared.llm.LLMClient.for_generation", return_value=mocker.Mock())
+
+    body = {"job_ids": ["does-not-exist"], "starttermin": "ab sofort"}
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/batch-tailor",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=30)
+    events = [json.loads(ln) for ln in resp.read().decode("utf-8").strip().split("\n") if ln.strip()]
+    errors = [e for e in events if e["event"] == "error"]
+    assert len(errors) == 1
+    assert "nicht in state.json" in errors[0]["error"]
+
+
 def test_tailor_orchestrator_failure_returns_502(running_server, tmp_path, mocker):
     """If tailor() raises, the endpoint returns 502 with the message."""
     from bewerber.shared.state_schema import Scoring as _Scoring
