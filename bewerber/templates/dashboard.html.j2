@@ -176,7 +176,13 @@ tr.expanded + tr.detail { display: table-row; }
 <h1>Bewerber-Dashboard
   <span style="float:right; font-size:13px; font-weight:normal;">
     <a href="/anlagen" style="padding:5px 12px; border:1px solid #c0c8d0; border-radius:4px; text-decoration:none; color:#333; margin-right:6px;">🗂 Anlagen verwalten</a>
-    <a href="/searches" style="padding:5px 12px; border:1px solid #c0c8d0; border-radius:4px; text-decoration:none; color:#333;">⚙ Suchen bearbeiten</a>
+    <a href="/searches" style="padding:5px 12px; border:1px solid #c0c8d0; border-radius:4px; text-decoration:none; color:#333; margin-right:6px;">⚙ Suchen bearbeiten</a>
+    {% if current_user %}
+    <span style="color:#555; padding:5px 10px; border-left:1px solid #d8d8d8; margin-left:4px;">
+      👤 {{ current_user }}
+      <a href="#" onclick="logoutFromDashboard(event)" style="color:#c33; text-decoration:none; margin-left:8px;" title="Logout">⎋</a>
+    </span>
+    {% endif %}
   </span>
 </h1>
 <div class="meta">
@@ -539,6 +545,17 @@ function buildDescriptionHtml(desc, jid) {
 function arbeitsmodellBadge(value) {
   if (!value) return "";
   return ` <span class="arbeitsmodell-badge arbeitsmodell-${value}">${value}</span>`;
+}
+
+async function logoutFromDashboard(evt) {
+  if (evt) evt.preventDefault();
+  try {
+    const resp = await fetch("/logout", {method: "POST"});
+    const body = await resp.json();
+    window.location.href = body.redirect || "/login";
+  } catch (e) {
+    alert("Logout-Fehler: " + e.message);
+  }
 }
 
 const STATUS_LABELS = {

@@ -18,12 +18,27 @@ def _env() -> Environment:
     )
 
 
-def render_dashboard(state: BewerberState) -> str:
+def render_dashboard(state: BewerberState, *, current_user: str | None = None) -> str:
     """Render the static dashboard HTML from a BewerberState."""
     tpl = _env().get_template("dashboard.html.j2")
     data_json = json.dumps(state.model_dump(mode="json"), ensure_ascii=False)
     workspace_path = str(Paths().workspace)
-    return tpl.render(state=state, data_json=data_json, workspace_path=workspace_path)
+    return tpl.render(
+        state=state,
+        data_json=data_json,
+        workspace_path=workspace_path,
+        current_user=current_user,
+    )
+
+
+def render_login() -> str:
+    """Render the /login page."""
+    return _env().get_template("login.html.j2").render()
+
+
+def render_onboarding(*, current_user: str | None = None) -> str:
+    """Render the /onboarding stub (Phase 1: Platzhalter, Wizard kommt in Phase 2)."""
+    return _env().get_template("onboarding.html.j2").render(current_user=current_user)
 
 
 def render_searches_editor(config: SearchesConfig) -> str:

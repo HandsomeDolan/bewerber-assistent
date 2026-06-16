@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Login - Bewerber-Assistent</title>
+<style>
+  body {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    margin: 0; padding: 0; background: #f7f8fa; color: #222;
+    display: flex; align-items: center; justify-content: center; min-height: 100vh;
+  }
+  .card {
+    background: #fff; border: 1px solid #e0e0e0; border-radius: 6px;
+    padding: 32px 36px; width: 360px; max-width: 92vw;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  }
+  h1 { margin: 0 0 4px 0; font-size: 22px; }
+  .subtitle { color: #666; font-size: 13px; margin: 0 0 22px 0; }
+  label { display: block; font-size: 12px; color: #444; margin: 10px 0; font-weight: 600; }
+  label input {
+    display: block; width: 100%; box-sizing: border-box;
+    padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+    font: inherit; font-size: 14px; margin-top: 4px;
+  }
+  label input:focus { outline: none; border-color: #2266cc; }
+  button {
+    width: 100%; margin-top: 16px;
+    padding: 10px 16px; background: #2266cc; color: #fff;
+    border: 1px solid #2266cc; border-radius: 4px;
+    font: inherit; font-weight: 600; font-size: 14px;
+    cursor: pointer;
+  }
+  button:hover { background: #1a55b3; }
+  #error {
+    display: none;
+    background: #fde9e9; color: #8a1a1a; border: 1px solid #f3b0b0;
+    padding: 8px 12px; border-radius: 4px; font-size: 13px; margin-top: 12px;
+  }
+  .hint { color: #888; font-size: 11px; margin-top: 18px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Bewerber-Assistent</h1>
+  <p class="subtitle">Bitte einloggen.</p>
+  <label>Vorname
+    <input type="text" id="vorname" autocomplete="given-name" autofocus required>
+  </label>
+  <label>Nachname
+    <input type="text" id="nachname" autocomplete="family-name" required>
+  </label>
+  <button id="login-btn" onclick="login()">Einloggen</button>
+  <div id="error"></div>
+  <p class="hint">
+    Login gilt 30 Tage (Cookie). Daten bleiben lokal. Single-User-Setup
+    aktuell; Multi-User folgt mit dem RPi-Schritt.
+  </p>
+</div>
+<script>
+const vornameEl = document.getElementById("vorname");
+const nachnameEl = document.getElementById("nachname");
+[vornameEl, nachnameEl].forEach(el => {
+  el.addEventListener("keydown", e => { if (e.key === "Enter") login(); });
+});
+function showError(msg) {
+  const el = document.getElementById("error");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+async function login() {
+  const vorname = vornameEl.value.trim();
+  const nachname = nachnameEl.value.trim();
+  if (!vorname || !nachname) {
+    showError("Vorname und Nachname sind erforderlich.");
+    return;
+  }
+  const btn = document.getElementById("login-btn");
+  btn.disabled = true;
+  btn.textContent = "...";
+  try {
+    const resp = await fetch("/login", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({vorname, nachname}),
+    });
+    const body = await resp.json();
+    if (!resp.ok) { showError(body.error || "Login fehlgeschlagen"); btn.disabled = false; btn.textContent = "Einloggen"; return; }
+    window.location.href = body.redirect || "/";
+  } catch (e) {
+    showError("Netzfehler: " + e.message);
+    btn.disabled = false; btn.textContent = "Einloggen";
+  }
+}
+</script>
+</body>
+</html>

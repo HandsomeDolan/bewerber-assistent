@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Onboarding - Bewerber-Assistent</title>
+<style>
+  body {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    margin: 0; padding: 0; background: #f7f8fa; color: #222;
+    display: flex; align-items: center; justify-content: center; min-height: 100vh;
+  }
+  .card {
+    background: #fff; border: 1px solid #e0e0e0; border-radius: 6px;
+    padding: 32px 36px; width: 520px; max-width: 92vw;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  }
+  h1 { margin: 0 0 6px 0; font-size: 22px; }
+  .subtitle { color: #666; font-size: 13px; margin: 0 0 18px 0; }
+  pre {
+    background: #f4f6f8; border: 1px solid #d8d8d8; border-radius: 4px;
+    padding: 10px 12px; font-size: 13px; overflow-x: auto;
+  }
+  .footer { margin-top: 20px; font-size: 13px; color: #555; }
+  .footer a { color: #2266cc; text-decoration: none; margin-right: 14px; }
+  .footer a:hover { text-decoration: underline; }
+  .notice {
+    background: #fdf6e3; color: #8a5d00; border: 1px solid #f0d495;
+    padding: 8px 12px; border-radius: 4px; font-size: 13px; margin: 14px 0;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Willkommen{% if current_user %}, {{ current_user }}{% endif %}!</h1>
+  <p class="subtitle">Dein Profil ist noch nicht eingerichtet.</p>
+
+  <div class="notice">
+    <b>Setup-Wizard kommt in Phase 2.</b> Bis dahin richte dein Profil per CLI ein.
+  </div>
+
+  <p>Im Terminal ausfuehren:</p>
+  <pre>cd /Users/steve/Documents/Bewerber_Assistent/bewerber
+source .venv/bin/activate
+PYTHONPATH=src python -m bewerber.cli profile init</pre>
+
+  <p style="margin-top:14px;">
+    Der Wizard fragt dich nach Lebenslauf-/Anschreiben-Vorlagen, extrahiert dein
+    Profil via LLM und legt <code>master_profile.yaml</code> an. Danach laed die
+    Seite neu und du landest direkt im Dashboard.
+  </p>
+
+  <div class="footer">
+    <a href="/">↻ Erneut versuchen</a>
+    <a href="#" onclick="logout(event)">Logout</a>
+  </div>
+</div>
+<script>
+async function logout(evt) {
+  evt.preventDefault();
+  try {
+    const resp = await fetch("/logout", {method: "POST"});
+    const body = await resp.json();
+    window.location.href = body.redirect || "/login";
+  } catch (e) {
+    alert("Logout-Fehler: " + e.message);
+  }
+}
+</script>
+</body>
+</html>

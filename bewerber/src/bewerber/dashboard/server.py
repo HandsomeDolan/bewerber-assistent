@@ -45,9 +45,11 @@ Designed for personal local use; not hardened for multi-user / public exposure.
 """
 from __future__ import annotations
 
+import http.cookies
 import json
 import os
 import subprocess
+import urllib.parse
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -64,8 +66,14 @@ from bewerber.shared.state_schema import JobStatus, StatusHistoryEntry
 from bewerber.dashboard.render import (
     render_anlagen_editor,
     render_dashboard,
+    render_login,
+    render_onboarding,
     render_searches_editor,
 )
+
+
+SESSION_COOKIE_NAME = "bewerber_session"
+SESSION_MAX_AGE_SECONDS = 30 * 24 * 3600   # 30 Tage
 
 
 def _now_iso() -> str:
@@ -102,6 +110,47 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    # ------------------------------------------------------------------
+    # Session-Cookie + Routing-Helpers
+    # ------------------------------------------------------------------
+
+    def _session_user(self) -> Optional[str]:
+        """Liest den Login-Namen aus dem bewerber_session-Cookie. None wenn fehlt."""
+        raw = self.headers.get("Cookie", "")
+        if not raw:
+            return None
+        try:
+            cookies = http.cookies.SimpleCookie()
+            cookies.load(raw)
+            morsel = cookies.get(SESSION_COOKIE_NAME)
+        except Exception:  # noqa: BLE001 - kaputter Cookie ist wie keiner
+            return None
+        if morsel is None:
+            return None
+        value = urllib.parse.unquote(morsel.value).strip()
+        return value or None
+
+    def _set_session_cookie_header(self, user_name: str) -> None:
+        """Fuegt den Set-Cookie-Header hinzu. VOR end_headers() rufen."""
+        quoted = urllib.parse.quote(user_name)
+        self.send_header(
+            "Set-Cookie",
+            f"{SESSION_COOKIE_NAME}={quoted}; Max-Age={SESSION_MAX_AGE_SECONDS}; "
+            f"Path=/; HttpOnly; SameSite=Lax",
+        )
+
+    def _clear_session_cookie_header(self) -> None:
+        self.send_header(
+            "Set-Cookie",
+            f"{SESSION_COOKIE_NAME}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax",
+        )
+
+    def _redirect(self, location: str) -> None:
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0"))
         if length == 0:
@@ -115,8 +164,25 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib API
         if self.path in ("/", "/index.html"):
+            session = self._session_user()
+            if not session:
+                self._redirect("/login")
+                return
+            if not self.paths.master_profile.is_file():
+                self._redirect("/onboarding")
+                return
             state = load_state(self.paths.state_json)
-            self._send_html(render_dashboard(state))
+            self._send_html(render_dashboard(state, current_user=session))
+            return
+        if self.path == "/login":
+            self._send_html(render_login())
+            return
+        if self.path == "/onboarding":
+            session = self._session_user()
+            if not session:
+                self._redirect("/login")
+                return
+            self._send_html(render_onboarding(current_user=session))
             return
         if self.path == "/searches":
             self._send_html(render_searches_editor(_load_searches_config(self.paths)))
@@ -164,6 +230,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_failed_clear()
             elif self.path == "/api/failed-urls/remove":
                 self._handle_failed_remove()
+            elif self.path == "/login":
+                self._handle_login()
+            elif self.path == "/logout":
+                self._handle_logout()
             else:
                 self._send_json(404, {"error": "unknown endpoint"})
         except Exception as e:  # noqa: BLE001
@@ -479,6 +549,34 @@ class _Handler(BaseHTTPRequestHandler):
                     pass
 
         emit({"event": "complete", "total": total})
+
+    def _handle_login(self) -> None:
+        """Setzt das Session-Cookie auf 'Vorname Nachname'."""
+        body = self._read_json()
+        vorname = (body.get("vorname") or "").strip()
+        nachname = (body.get("nachname") or "").strip()
+        if not vorname or not nachname:
+            self._send_json(400, {"error": "Vorname und Nachname sind erforderlich."})
+            return
+        user_name = f"{vorname} {nachname}"
+        payload = json.dumps({"ok": True, "user": user_name, "redirect": "/"}, ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self._set_session_cookie_header(user_name)
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _handle_logout(self) -> None:
+        payload = json.dumps({"ok": True, "redirect": "/login"}, ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self._clear_session_cookie_header()
+        self.end_headers()
+        self.wfile.write(payload)
 
     def _handle_batch_tailor(self) -> None:
         """Streaming-Endpoint: tailored mehrere Jobs in einem Rutsch.

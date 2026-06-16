@@ -15,11 +15,18 @@ from bewerber.shared.state_schema import (
 from bewerber.dashboard.server import serve as start_server
 
 
+SESSION_COOKIE = "bewerber_session=Test%20User"
+
+
 @pytest.fixture
 def running_server(tmp_path, monkeypatch):
     """Start an ephemeral HTTP server bound to a fresh state.json under tmp_path."""
     monkeypatch.setenv("BEWERBER_WORKSPACE", str(tmp_path))
     (tmp_path / "bewerber").mkdir()
+    # Stub master_profile.yaml so dashboard-routing doesn't redirect to /onboarding
+    (tmp_path / "bewerber" / "master_profile.yaml").write_text(
+        "person: {name: x, email: x@y.de}\nberufsprofil: x\nzielposition: []",
+    )
     # Seed one job
     state = BewerberState(jobs={
         "arbeitsagentur-x1": TrackedJob(raw=RawJob(
@@ -41,11 +48,14 @@ def running_server(tmp_path, monkeypatch):
         thread.join(timeout=2)
 
 
-def _post_json(port: int, path: str, body: dict) -> tuple[int, dict]:
+def _post_json(port: int, path: str, body: dict, *, with_session: bool = True) -> tuple[int, dict]:
+    headers = {"Content-Type": "application/json"}
+    if with_session:
+        headers["Cookie"] = SESSION_COOKIE
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:
@@ -55,12 +65,36 @@ def _post_json(port: int, path: str, body: dict) -> tuple[int, dict]:
         return e.code, json.loads(e.read())
 
 
-def _get(port: int, path: str) -> tuple[int, str]:
-    try:
-        resp = urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=5)
-        return resp.status, resp.read().decode("utf-8")
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf-8")
+def _get(port: int, path: str, *, with_session: bool = True, follow_redirects: bool = False) -> tuple[int, str]:
+    """GET with optional session cookie + control of redirect-following.
+
+    follow_redirects=False is the default so tests can assert 302 + Location header.
+    """
+    headers = {}
+    if with_session:
+        headers["Cookie"] = SESSION_COOKIE
+
+    if follow_redirects:
+        try:
+            resp = urllib.request.urlopen(
+                urllib.request.Request(f"http://127.0.0.1:{port}{path}", headers=headers),
+                timeout=5,
+            )
+            return resp.status, resp.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode("utf-8")
+
+    # Manuelles Handling: urllib folgt sonst 302 automatisch
+    import http.client
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.request("GET", path, headers=headers)
+    resp = conn.getresponse()
+    body = resp.read().decode("utf-8")
+    # Location-Header bei 302 in den body packen, damit Tests einfach pruefen koennen
+    if resp.status in (301, 302, 303, 307, 308):
+        body = f"REDIRECT to: {resp.getheader('Location')}\n" + body
+    conn.close()
+    return resp.status, body
 
 
 def test_get_index_returns_dashboard_html(running_server):
@@ -321,7 +355,10 @@ def test_add_posting_missing_fields_returns_400(running_server):
 
 
 def test_add_posting_without_master_profile_returns_500(running_server, tmp_path):
-    """Fixture seeds a job at https://x already; use a fresh URL here."""
+    """Fixture seeds a job at https://x already; use a fresh URL here.
+    Fixture seeded master_profile.yaml fuer das Routing - hier loeschen,
+    damit der Endpoint die fehlende Master-Profile-Pruefung trifft."""
+    (tmp_path / "bewerber" / "master_profile.yaml").unlink()
     code, body = _post_json(running_server, "/api/add-posting", {
         "url": "https://fresh.example/job", "firma": "F", "rolle": "R",
     })
@@ -575,6 +612,9 @@ def test_batch_add_postings_rejects_empty_urls_list(running_server):
 
 
 def test_batch_add_postings_rejects_missing_master_profile(running_server, tmp_path):
+    """Fixture seeded master_profile.yaml fuer das Routing - hier loeschen,
+    damit der Endpoint die fehlende Master-Profile-Pruefung trifft."""
+    (tmp_path / "bewerber" / "master_profile.yaml").unlink()
     code, body = _post_json(running_server, "/api/batch-add-postings", {
         "urls": ["https://x"],
     })
@@ -846,3 +886,107 @@ def test_tailor_orchestrator_failure_returns_502(running_server, tmp_path, mocke
     })
     assert code == 502
     assert "LLM quota out" in body["error"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: Login, Onboarding-Stub, Session-Cookie, Routing
+# ---------------------------------------------------------------------------
+
+def test_get_root_without_cookie_redirects_to_login(running_server):
+    code, body = _get(running_server, "/", with_session=False)
+    assert code == 302
+    assert "Location: /login" in body or "REDIRECT to: /login" in body
+
+
+def test_get_root_with_cookie_but_no_master_profile_redirects_to_onboarding(
+    running_server, tmp_path,
+):
+    """master_profile.yaml entfernen -> Routing schickt auf /onboarding."""
+    (tmp_path / "bewerber" / "master_profile.yaml").unlink()
+    code, body = _get(running_server, "/", with_session=True)
+    assert code == 302
+    assert "/onboarding" in body
+
+
+def test_get_root_with_cookie_and_profile_renders_dashboard(running_server):
+    code, body = _get(running_server, "/", with_session=True)
+    assert code == 200
+    assert "<title>Bewerber-Dashboard</title>" in body
+    assert "arbeitsagentur-x1" in body
+    # User-Badge sichtbar
+    assert "Test User" in body
+
+
+def test_get_login_page_renders(running_server):
+    code, body = _get(running_server, "/login", with_session=False)
+    assert code == 200
+    assert "Bewerber-Assistent" in body
+    assert "Vorname" in body
+    assert "Nachname" in body
+
+
+def test_post_login_sets_session_cookie(running_server):
+    """Erfolgreicher Login setzt das Cookie + returnt redirect."""
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/login",
+        data=json.dumps({"vorname": "Erika", "nachname": "Mustermann"}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=5)
+    assert resp.status == 200
+    body = json.loads(resp.read())
+    assert body["ok"] is True
+    assert body["user"] == "Erika Mustermann"
+    assert body["redirect"] == "/"
+    set_cookie = resp.getheader("Set-Cookie") or ""
+    assert "bewerber_session=Erika%20Mustermann" in set_cookie
+    assert "Max-Age=" in set_cookie
+    assert "HttpOnly" in set_cookie
+
+
+def test_post_login_rejects_empty_fields(running_server):
+    code, body = _post_json(running_server, "/login", {"vorname": "", "nachname": ""}, with_session=False)
+    assert code == 400
+    assert "erforderlich" in body["error"]
+
+
+def test_post_logout_clears_session_cookie(running_server):
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/logout",
+        data=b"",
+        headers={"Content-Type": "application/json", "Cookie": SESSION_COOKIE},
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=5)
+    assert resp.status == 200
+    body = json.loads(resp.read())
+    assert body["redirect"] == "/login"
+    set_cookie = resp.getheader("Set-Cookie") or ""
+    assert "bewerber_session=" in set_cookie
+    assert "Max-Age=0" in set_cookie
+
+
+def test_get_onboarding_without_cookie_redirects_to_login(running_server):
+    code, body = _get(running_server, "/onboarding", with_session=False)
+    assert code == 302
+    assert "/login" in body
+
+
+def test_get_onboarding_with_cookie_renders_stub(running_server):
+    code, body = _get(running_server, "/onboarding", with_session=True)
+    assert code == 200
+    assert "Willkommen" in body
+    assert "Test User" in body
+
+
+def test_invalid_session_cookie_treated_as_missing(running_server):
+    """Wenn der Cookie da ist aber leer/whitespace, soll der Server so handeln als waere keiner da."""
+    import http.client
+    conn = http.client.HTTPConnection("127.0.0.1", running_server, timeout=5)
+    conn.request("GET", "/", headers={"Cookie": "bewerber_session="})
+    resp = conn.getresponse()
+    body = resp.read()
+    conn.close()
+    assert resp.status == 302
+    assert resp.getheader("Location") == "/login"
