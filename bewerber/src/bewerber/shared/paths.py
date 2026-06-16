@@ -10,15 +10,41 @@ class Paths:
     _LEADING_NUMBER_REGEX = re.compile(r"^(\d+)")
 
     def __init__(self) -> None:
-        # Defaults: BEWERBER_WORKSPACE = aktuelles Verzeichnis (typischerweise
-        # das Projekt-Root nach `cd <repo>`), BEWERBER_DOCUMENTS = ~/Documents.
-        # Beides per Env-Var ueberschreibbar.
-        self.workspace = Path(
-            os.environ.get("BEWERBER_WORKSPACE", str(Path.cwd()))
-        )
+        # BEWERBER_WORKSPACE override hat Vorrang. Sonst auto-detecten via
+        # __file__ - das funktioniert robust egal welcher cwd der User hat,
+        # solange das Paket via `pip install -e .` installiert wurde.
+        env_workspace = os.environ.get("BEWERBER_WORKSPACE")
+        if env_workspace:
+            self.workspace = Path(env_workspace)
+        else:
+            self.workspace = self._autodetect_workspace()
         self.documents = Path(
             os.environ.get("BEWERBER_DOCUMENTS", str(Path.home() / "Documents"))
         )
+
+    @staticmethod
+    def _autodetect_workspace() -> Path:
+        """Heuristik wenn BEWERBER_WORKSPACE nicht gesetzt ist.
+
+        Bei editable-install (`pip install -e .`) liegt diese Datei unter
+            <workspace>/bewerber/src/bewerber/shared/paths.py
+        also ist <workspace> = parents[4]. Wir validieren das, indem wir
+        pruefen ob das gefundene Verzeichnis die erwartete Struktur hat
+        (bewerber/src/bewerber existiert) - sonst Fallback auf cwd-Heuristik.
+
+        Damit funktioniert `bewerber serve` egal ob aus dem Repo-Root oder
+        aus dem bewerber/-Unterordner gestartet.
+        """
+        try:
+            anchored = Path(__file__).resolve().parents[4]
+        except IndexError:  # noqa: PERF203 - sehr seltener Fall
+            anchored = None
+        if anchored and (anchored / "bewerber" / "src" / "bewerber").is_dir():
+            return anchored
+        # Non-editable Install oder ungewoehnliches Layout: nimm cwd, aber wenn
+        # cwd selbst der bewerber-Unterordner ist, dessen Parent verwenden.
+        cwd = Path.cwd()
+        return cwd.parent if cwd.name == "bewerber" else cwd
 
     @property
     def bewerber_dir(self) -> Path:
