@@ -73,6 +73,44 @@ tr.expanded + tr.detail { display: table-row; }
 .notes-save-btn { font: inherit; font-size: 12px; padding: 3px 10px; border: 1px solid #2266cc; background: #2266cc; color: #fff; border-radius: 3px; cursor: pointer; margin-left: 8px; font-weight: 600; }
 .notes-save-btn:hover { background: #1a55b3; }
 .notes-status { font-size: 12px; margin-left: 8px; font-weight: normal; }
+
+.batch-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 1000; }
+.batch-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
+.batch-modal-content {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: #fff; border-radius: 8px; padding: 20px 26px;
+  width: 640px; max-width: 92vw; max-height: 80vh; overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+.batch-modal-content h2 { margin: 0 0 12px 0; font-size: 18px; }
+.batch-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-bottom: 1px solid #eee;
+  font-size: 13px;
+}
+.batch-row:last-child { border-bottom: none; }
+.batch-row .label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.batch-row .bar-wrap { width: 140px; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
+.batch-row .bar { height: 100%; background: #2266cc; width: 0%; transition: width 0.4s; }
+.batch-row.done { color: #1f6d31; }
+.batch-row.done .bar { width: 100% !important; background: #34a853; }
+.batch-row.error { color: #c33; }
+.batch-row .icon { width: 18px; text-align: center; font-weight: 700; }
+.batch-row.error .bar-wrap { display: none; }
+.batch-row.done .bar-wrap { display: none; }
+.batch-row.error .err-msg { color: #c33; font-size: 11px; font-style: italic; }
+
+.failed-urls-section { background: #fff; border: 1px solid #f3c2c2; border-radius: 5px; padding: 12px 16px; margin: 16px 0; }
+.failed-urls-section h3 { margin: 0 0 10px 0; font-size: 14px; color: #8a1a1a; display: flex; justify-content: space-between; align-items: center; }
+.failed-url-row {
+  display: grid; grid-template-columns: 1fr auto auto auto;
+  gap: 8px; align-items: center; padding: 6px 0;
+  border-bottom: 1px solid #fbe6e6; font-size: 13px;
+}
+.failed-url-row:last-child { border-bottom: none; }
+.failed-url-row .url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+.failed-url-row .err { color: #c33; font-size: 11px; font-style: italic; }
+.failed-url-row button { font-size: 11px; padding: 3px 10px; }
 .tailor-status { font-size: 12px; margin-left: 10px; }
 .action-btn.primary { background: #2266cc; color: #fff; border-color: #2266cc; font-weight: 600; }
 .action-btn.primary:hover:not(:disabled) { background: #1a55b3; }
@@ -152,11 +190,63 @@ tr.expanded + tr.detail { display: table-row; }
   </details>
 </div>
 
+<div class="add-posting">
+  <details>
+    <summary>+ Mehrere URLs auf einmal verarbeiten (Batch-Scoring)</summary>
+    <label class="field" style="display:block; margin:10px 0 6px 0; font-size:12px; color:#555; font-weight:600;">
+      URLs (eine pro Zeile)
+    </label>
+    <textarea id="batch-urls" rows="6" placeholder="https://...&#10;https://...&#10;https://..." style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #ccc; border-radius:4px; font:inherit; font-size:13px; font-family: ui-monospace, 'SF Mono', Menlo, monospace;"></textarea>
+    <div style="margin-top:8px;">
+      <button id="batch-btn" onclick="startBatch()" style="padding:7px 14px; background:#2266cc; color:#fff; border:1px solid #2266cc; border-radius:4px; font-weight:600; cursor:pointer;">▶ Batch starten</button>
+    </div>
+    <div class="add-hint">
+      Firma + Rolle werden von der LLM aus dem Posting extrahiert - keine manuelle
+      Eingabe noetig. Pro URL ein LLM-Call (~5-10s). Fehlerhafte URLs werden uebersprungen
+      und landen in der "Fehlgeschlagene URLs"-Sektion unten am Dashboard.
+    </div>
+  </details>
+</div>
+
+<div id="batch-modal" class="batch-modal" style="display:none;">
+  <div class="batch-modal-backdrop"></div>
+  <div class="batch-modal-content">
+    <h2>Batch-Lauf <span id="batch-summary" class="muted" style="font-weight:normal; font-size:13px;"></span></h2>
+    <div id="batch-rows"></div>
+    <div style="margin-top:16px; text-align:right;">
+      <button id="batch-close" onclick="closeBatchModal()" disabled
+              style="padding:8px 16px; border:1px solid #ccc; background:#fff; border-radius:4px; cursor:pointer; font-weight:600;">
+        Schliessen
+      </button>
+    </div>
+  </div>
+</div>
+
 {% if state.scrape_errors %}
 <div class="errors">
   <b>Scrape-Fehler:</b>
   {% for board, err in state.scrape_errors.items() %}
     {{ board }} ({{ err.at }}): {{ err.last_error }};
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if state.failed_urls %}
+<div class="failed-urls-section">
+  <h3>
+    ❗ Fehlgeschlagene URLs ({{ state.failed_urls | length }})
+    <button onclick="clearAllFailed()" style="font-size:11px; padding:3px 10px; border:1px solid #c33; background:#fff; color:#c33; border-radius:3px; cursor:pointer;">Liste leeren</button>
+  </h3>
+  {% for f in state.failed_urls %}
+  <div class="failed-url-row" data-url="{{ f.url }}">
+    <div>
+      <div class="url" title="{{ f.url }}">{{ f.url }}</div>
+      <div class="err">{{ f.error }}</div>
+    </div>
+    <span class="muted" style="font-size:11px;">{{ f.at[:16] }}</span>
+    <button onclick="retryFailed('{{ f.url | replace("'", "\\'") }}', this)" style="background:#2266cc; color:#fff; border:1px solid #2266cc; border-radius:3px; cursor:pointer;">↻ Erneut versuchen</button>
+    <button onclick="removeFailed('{{ f.url | replace("'", "\\'") }}', this)" style="background:#fff; border:1px solid #ccc; border-radius:3px; cursor:pointer;">verwerfen</button>
+  </div>
   {% endfor %}
 </div>
 {% endif %}
@@ -561,6 +651,196 @@ async function createBewerbung(jid, evt) {
     statusEl.textContent = "✗ Fehlgeschlagen: " + e.message;
     btn.disabled = false;
     btn.textContent = "📄 Bewerbung erstellen";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Batch-Add: streamt NDJSON-Events vom Server pro URL
+// ---------------------------------------------------------------------------
+
+async function startBatch() {
+  if (!IS_HTTP) {
+    alert("Batch-Lauf funktioniert nur ueber 'bewerber serve' (HTTP).");
+    return;
+  }
+  const text = (document.getElementById("batch-urls").value || "").trim();
+  const urls = text.split("\n").map(s => s.trim()).filter(Boolean);
+  if (urls.length === 0) {
+    alert("Bitte mindestens eine URL eingeben (pro Zeile).");
+    return;
+  }
+  // Modal aufbauen
+  const modal = document.getElementById("batch-modal");
+  const rowsEl = document.getElementById("batch-rows");
+  const summary = document.getElementById("batch-summary");
+  const closeBtn = document.getElementById("batch-close");
+  rowsEl.innerHTML = "";
+  summary.textContent = `0/${urls.length} fertig`;
+  closeBtn.disabled = true;
+  urls.forEach((_, i) => {
+    const row = document.createElement("div");
+    row.className = "batch-row";
+    row.dataset.index = String(i);
+    row.innerHTML = `
+      <span class="icon">⏳</span>
+      <span class="label">Job ${i + 1}</span>
+      <div class="bar-wrap"><div class="bar"></div></div>
+    `;
+    rowsEl.appendChild(row);
+  });
+  modal.style.display = "block";
+
+  // POST + NDJSON-Stream parsen
+  let done = 0, errors = 0, dupes = 0;
+  const resp = await fetch("/api/batch-add-postings", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({urls}),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    alert("Batch konnte nicht gestartet werden: " + (body.error || resp.status));
+    modal.style.display = "none";
+    return;
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const {value, done: streamDone} = await reader.read();
+    if (streamDone) break;
+    buffer += decoder.decode(value, {stream: true});
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";  // letzte (evtl. unvollstaendige) Zeile zurueckhalten
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let ev;
+      try { ev = JSON.parse(trimmed); } catch (e) { continue; }
+      handleBatchEvent(ev);
+      if (ev.event === "done") done++;
+      if (ev.event === "error") errors++;
+      if (ev.event === "skipped_duplicate") dupes++;
+      summary.textContent = `${done + errors + dupes}/${urls.length} verarbeitet (${done} neu, ${dupes} Duplikate, ${errors} Fehler)`;
+    }
+  }
+  closeBtn.disabled = false;
+}
+
+function handleBatchEvent(ev) {
+  const rowsEl = document.getElementById("batch-rows");
+  const row = rowsEl.querySelector(`.batch-row[data-index="${ev.index}"]`);
+  if (!row && ev.event !== "begin" && ev.event !== "complete") return;
+  const bar = row && row.querySelector(".bar");
+  const icon = row && row.querySelector(".icon");
+  const label = row && row.querySelector(".label");
+
+  switch (ev.event) {
+    case "begin":
+    case "complete":
+      return;
+    case "start":
+      if (bar) bar.style.width = "10%";
+      break;
+    case "phase":
+      if (bar) bar.style.width = ev.phase === "snapshot" ? "35%" : "70%";
+      break;
+    case "extracted":
+      // Hier wechselt das "Job N" Label zum echten Rollennamen
+      if (label) label.textContent = `${ev.rolle} - ${ev.firma}`;
+      if (bar) bar.style.width = "80%";
+      break;
+    case "done":
+      row.classList.add("done");
+      if (icon) icon.textContent = "✓";
+      break;
+    case "error":
+      row.classList.add("error");
+      if (icon) icon.textContent = "✗";
+      if (label) label.innerHTML = `<span title="${escapeAttr(ev.url)}">${escapeHtml(ev.url)}</span><div class="err-msg">${escapeHtml(ev.error)}</div>`;
+      break;
+    case "skipped_duplicate":
+      row.classList.add("done");
+      if (icon) icon.textContent = "⊘";
+      if (label) label.innerHTML = `<span class="muted">${escapeHtml(ev.url)} (bereits erfasst)</span>`;
+      break;
+  }
+}
+
+function closeBatchModal() {
+  document.getElementById("batch-modal").style.display = "none";
+  // Dashboard neu laden, damit die neuen Jobs erscheinen + failed_urls
+  window.location.reload();
+}
+
+async function retryFailed(url, btn) {
+  if (!IS_HTTP) return;
+  btn.disabled = true;
+  btn.textContent = "läuft ...";
+  // Single-URL-Batch starten ueber dieselbe Streaming-API
+  try {
+    const resp = await fetch("/api/batch-add-postings", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({urls: [url]}),
+    });
+    if (!resp.ok) {
+      btn.textContent = "↻ Erneut";
+      btn.disabled = false;
+      alert("Retry fehlgeschlagen: " + resp.status);
+      return;
+    }
+    // Stream lesen aber nicht visualisieren - am Ende reloaden
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let lastEvent = null;
+    let buffer = "";
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const ln of lines) {
+        const t = ln.trim();
+        if (!t) continue;
+        try { lastEvent = JSON.parse(t); } catch (e) {}
+      }
+    }
+    window.location.reload();
+  } catch (e) {
+    btn.textContent = "↻ Erneut";
+    btn.disabled = false;
+    alert("Retry-Fehler: " + e.message);
+  }
+}
+
+async function removeFailed(url, btn) {
+  if (!IS_HTTP) return;
+  btn.disabled = true;
+  try {
+    const resp = await fetch("/api/failed-urls/remove", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({url}),
+    });
+    if (!resp.ok) throw new Error("Status " + resp.status);
+    btn.closest(".failed-url-row").remove();
+  } catch (e) {
+    btn.disabled = false;
+    alert("Konnte nicht entfernen: " + e.message);
+  }
+}
+
+async function clearAllFailed() {
+  if (!IS_HTTP) return;
+  if (!confirm("Alle fehlgeschlagenen URLs aus der Liste entfernen?")) return;
+  try {
+    const resp = await fetch("/api/failed-urls/clear", {method: "POST"});
+    if (!resp.ok) throw new Error("Status " + resp.status);
+    window.location.reload();
+  } catch (e) {
+    alert("Fehler: " + e.message);
   }
 }
 

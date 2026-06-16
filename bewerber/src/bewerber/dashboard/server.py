@@ -12,6 +12,13 @@ Endpoints:
     POST /api/add-posting   -> body {url, firma, rolle} -> Playwright-Snapshot +
                                Score gegen master_profile + upsert in state.json.
                                Synchron, ~10-15s. Returns {ok, job_id, fit_score}.
+    POST /api/batch-add-postings -> body {urls: [str, ...]}. Verarbeitet jede URL
+                               sequenziell (snapshot + LLM-Call der Firma+Rolle
+                               extrahiert UND scort). Streamt NDJSON-Events
+                               (start/extracted/done/error) live an den Client.
+                               Fehlgeschlagene URLs landen in state.failed_urls.
+    POST /api/failed-urls/clear  -> loescht alle failed_urls.
+    POST /api/failed-urls/remove -> body {url} -> loescht eine bestimmte URL.
     POST /api/tailor        -> body {job_id, starttermin, gehalt?, kontakt_name?}
                                Triggert serverseitig den vollen Tailor-Lauf
                                (customize + anschreiben + PDF + Anlagen-Copy).
@@ -141,6 +148,13 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_tailor()
             elif self.path == "/api/notes-set":
                 self._handle_notes_set()
+            elif self.path == "/api/batch-add-postings":
+                self._handle_batch_add()
+                return  # streaming response already complete
+            elif self.path == "/api/failed-urls/clear":
+                self._handle_failed_clear()
+            elif self.path == "/api/failed-urls/remove":
+                self._handle_failed_remove()
             else:
                 self._send_json(404, {"error": "unknown endpoint"})
         except Exception as e:  # noqa: BLE001
@@ -349,6 +363,132 @@ class _Handler(BaseHTTPRequestHandler):
         job.notes = f"{job.notes}\n{entry}".strip() if job.notes else entry
         save_state(self.paths.state_json, state)
         self._send_json(200, {"ok": True, "job_id": job_id})
+
+    def _handle_batch_add(self) -> None:
+        """Streaming-Endpoint: jede URL einzeln verarbeiten + Events live raussenden.
+
+        Antwort-Format: NDJSON (eine JSON-Zeile pro Event), Content-Type
+        application/x-ndjson, kein Content-Length -> Connection schliesst am Ende.
+        """
+        body = self._read_json()
+        urls = body.get("urls", [])
+        if not isinstance(urls, list) or not urls:
+            self._send_json(400, {"error": "urls (Liste mit mind. 1 Eintrag) erforderlich"})
+            return
+        urls = [u.strip() for u in urls if isinstance(u, str) and u.strip()]
+        if not urls:
+            self._send_json(400, {"error": "keine gueltigen URLs in der Liste"})
+            return
+
+        if not self.paths.master_profile.is_file():
+            self._send_json(500, {"error": "master_profile.yaml fehlt"})
+            return
+
+        # Lazy imports (Playwright/LLM-stack ist heavy)
+        from bewerber.tailoring.snapshot import snapshot_url
+        from bewerber.discovery.enrich import enrich_job, extract_arbeitsmodell
+        from bewerber.discovery.scoring import extract_and_score
+        from bewerber.shared.llm import LLMClient
+        from bewerber.shared.state import upsert_job
+        from bewerber.shared.state_schema import FailedUrl, RawJob, TrackedJob
+        import hashlib
+        import tempfile
+
+        # Streaming-Header senden
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+        def emit(event: dict) -> None:
+            self.wfile.write((json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8"))
+            self.wfile.flush()
+
+        master_yaml_text = self.paths.master_profile.read_text(encoding="utf-8")
+        llm = LLMClient.for_scoring()
+        total = len(urls)
+        emit({"event": "begin", "total": total})
+
+        for i, url in enumerate(urls):
+            emit({"event": "start", "index": i, "url": url})
+            try:
+                state = load_state(self.paths.state_json)
+                # Skip Duplikate
+                if any(j.raw.url == url for j in state.jobs.values()):
+                    emit({"event": "skipped_duplicate", "index": i, "url": url})
+                    continue
+
+                emit({"event": "phase", "index": i, "phase": "snapshot"})
+                snap_dir = Path(tempfile.mkdtemp(prefix="bewerber-batch-"))
+                posting_text = snapshot_url(url, snap_dir)
+
+                emit({"event": "phase", "index": i, "phase": "llm"})
+                result = extract_and_score(
+                    posting_text=posting_text,
+                    master_yaml_text=master_yaml_text,
+                    llm=llm,
+                )
+                # Sobald die LLM den Rollennamen liefert, das UI updaten
+                emit({
+                    "event": "extracted", "index": i,
+                    "firma": result.firma, "rolle": result.rolle,
+                })
+
+                external_id = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
+                job_id = f"manual-{external_id}"
+                raw = RawJob(
+                    board="manual", external_id=external_id, url=url,
+                    title=result.rolle, company=result.firma, location="",
+                    description=posting_text,
+                    arbeitsmodell=extract_arbeitsmodell(posting_text),
+                )
+                enriched = enrich_job(raw)
+                tracked = TrackedJob(
+                    raw=enriched,
+                    scoring=result.scoring,
+                    first_seen=_now_iso(),
+                )
+                upsert_job(state, tracked)
+                # Falls die URL vorher in failed_urls war -> rausnehmen
+                state.failed_urls = [f for f in state.failed_urls if f.url != url]
+                save_state(self.paths.state_json, state)
+
+                emit({
+                    "event": "done", "index": i,
+                    "job_id": job_id, "fit_score": result.scoring.fit_score,
+                })
+            except Exception as e:  # noqa: BLE001 - eine fehlerhafte URL stoppt nicht den Batch
+                msg = str(e)[:300]
+                emit({"event": "error", "index": i, "url": url, "error": msg})
+                # In failed_urls persistieren
+                try:
+                    state = load_state(self.paths.state_json)
+                    state.failed_urls = [f for f in state.failed_urls if f.url != url]
+                    state.failed_urls.append(FailedUrl(url=url, error=msg, at=_now_iso()))
+                    save_state(self.paths.state_json, state)
+                except Exception:  # noqa: BLE001
+                    pass
+
+        emit({"event": "complete", "total": total})
+
+    def _handle_failed_clear(self) -> None:
+        state = load_state(self.paths.state_json)
+        n = len(state.failed_urls)
+        state.failed_urls = []
+        save_state(self.paths.state_json, state)
+        self._send_json(200, {"ok": True, "removed": n})
+
+    def _handle_failed_remove(self) -> None:
+        body = self._read_json()
+        url = (body.get("url") or "").strip()
+        if not url:
+            self._send_json(400, {"error": "url required"})
+            return
+        state = load_state(self.paths.state_json)
+        before = len(state.failed_urls)
+        state.failed_urls = [f for f in state.failed_urls if f.url != url]
+        save_state(self.paths.state_json, state)
+        self._send_json(200, {"ok": True, "removed": before - len(state.failed_urls)})
 
     def _handle_notes_set(self) -> None:
         body = self._read_json()

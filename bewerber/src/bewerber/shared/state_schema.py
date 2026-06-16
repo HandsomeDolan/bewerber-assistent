@@ -74,6 +74,18 @@ class ScrapeError(BaseModel):
     at: str  # ISO 8601
 
 
+class FailedUrl(BaseModel):
+    """URL aus einem Batch-Run, die nicht verarbeitet werden konnte.
+
+    Bleibt in state.json bis sie erfolgreich nachgereicht oder per UI
+    verworfen wird.
+    """
+    model_config = ConfigDict(extra="forbid")
+    url: str
+    error: str
+    at: str  # ISO 8601
+
+
 class BewerberState(BaseModel):
     """Top-level state.json contract."""
     model_config = ConfigDict(extra="forbid")
@@ -81,3 +93,4 @@ class BewerberState(BaseModel):
     last_discovery_run: Optional[str] = None  # ISO 8601
     scrape_errors: dict[str, ScrapeError] = Field(default_factory=dict)
     jobs: dict[str, TrackedJob] = Field(default_factory=dict)
+    failed_urls: list[FailedUrl] = Field(default_factory=list)

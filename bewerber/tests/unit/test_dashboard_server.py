@@ -10,7 +10,7 @@ import pytest
 from bewerber.shared.paths import Paths
 from bewerber.shared.state import save_state, load_state
 from bewerber.shared.state_schema import (
-    BewerberState, JobStatus, RawJob, TrackedJob,
+    BewerberState, FailedUrl, JobStatus, RawJob, TrackedJob,
 )
 from bewerber.dashboard.server import serve as start_server
 
@@ -446,6 +446,172 @@ def test_tailor_happy_path(running_server, tmp_path, mocker):
     assert inp.gehalt == "65000"
     assert inp.kontakt_name == "Frau Müller"
     assert inp.posting_text == "job desc"
+
+
+# ---------------------------------------------------------------------------
+# Batch add-postings + failed_urls Management
+# ---------------------------------------------------------------------------
+
+def test_batch_add_postings_streams_ndjson_events(running_server, tmp_path, mocker):
+    """Happy path: 2 URLs, snapshot + extract_and_score gemockt."""
+    # Master-Profil anlegen
+    (tmp_path / "bewerber" / "master_profile.yaml").write_text(
+        "person: {name: x, email: x@y.de}\nberufsprofil: x\nzielposition: []",
+    )
+    # Snapshots mocken
+    mocker.patch(
+        "bewerber.tailoring.snapshot.snapshot_url",
+        side_effect=lambda url, out: f"Job text fuer {url}",
+    )
+    # LLM-Call mocken
+    from bewerber.discovery.scoring import BatchScoreResult
+    from bewerber.shared.state_schema import Scoring as _Sc
+
+    def fake_extract(posting_text, master_yaml_text, llm):
+        # Liefere passenden Firma/Rolle abhaengig vom Text
+        if "abc" in posting_text:
+            return BatchScoreResult(
+                firma="Acme GmbH", rolle="AI Manager",
+                scoring=_Sc(fit_score=8, begruendung="ok", matched_skills=[],
+                            missing_skills=[], red_flags=[], verbessern_in_anschreiben=[]),
+            )
+        return BatchScoreResult(
+            firma="Beta AG", rolle="Senior Consultant",
+            scoring=_Sc(fit_score=5, begruendung="ok", matched_skills=[],
+                        missing_skills=[], red_flags=[], verbessern_in_anschreiben=[]),
+        )
+    mocker.patch("bewerber.dashboard.server.LLMClient", create=True)
+    mocker.patch("bewerber.discovery.scoring.extract_and_score", side_effect=fake_extract)
+    mocker.patch("bewerber.shared.llm.LLMClient.for_scoring", return_value=mocker.Mock())
+
+    body = {"urls": ["https://x.example/abc", "https://x.example/xyz"]}
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/batch-add-postings",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=30)
+    assert resp.status == 200
+    assert resp.headers["Content-Type"].startswith("application/x-ndjson")
+
+    raw = resp.read().decode("utf-8")
+    events = [json.loads(ln) for ln in raw.strip().split("\n") if ln.strip()]
+
+    # Begin + complete einrahmen
+    assert events[0]["event"] == "begin"
+    assert events[0]["total"] == 2
+    assert events[-1]["event"] == "complete"
+
+    # Pro URL: start, mind. ein phase, extracted, done
+    starts = [e for e in events if e["event"] == "start"]
+    extracted = [e for e in events if e["event"] == "extracted"]
+    done = [e for e in events if e["event"] == "done"]
+    assert len(starts) == 2
+    assert len(extracted) == 2
+    assert len(done) == 2
+    # firma/rolle aus dem fake LLM
+    assert {e["firma"] for e in extracted} == {"Acme GmbH", "Beta AG"}
+
+    # State: beide Jobs persistiert
+    state = load_state(Paths().state_json)
+    manual_jobs = [j for j in state.jobs.values() if j.raw.board == "manual"]
+    assert len(manual_jobs) == 2
+
+
+def test_batch_add_postings_handles_per_url_errors_and_stores_in_failed_urls(
+    running_server, tmp_path, mocker,
+):
+    """Eine URL crasht beim Snapshot -> error-Event + landet in failed_urls."""
+    (tmp_path / "bewerber" / "master_profile.yaml").write_text(
+        "person: {name: x, email: x@y.de}\nberufsprofil: x\nzielposition: []",
+    )
+
+    def snap(url, out):
+        if "bad" in url:
+            raise RuntimeError("snapshot crashed")
+        return "good posting text"
+
+    mocker.patch("bewerber.tailoring.snapshot.snapshot_url", side_effect=snap)
+    from bewerber.discovery.scoring import BatchScoreResult
+    from bewerber.shared.state_schema import Scoring as _Sc
+    mocker.patch(
+        "bewerber.discovery.scoring.extract_and_score",
+        return_value=BatchScoreResult(
+            firma="OK GmbH", rolle="Manager",
+            scoring=_Sc(fit_score=7, begruendung="ok", matched_skills=[],
+                        missing_skills=[], red_flags=[], verbessern_in_anschreiben=[]),
+        ),
+    )
+    mocker.patch("bewerber.shared.llm.LLMClient.for_scoring", return_value=mocker.Mock())
+
+    body = {"urls": ["https://x.example/bad-url", "https://x.example/good-url"]}
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/batch-add-postings",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=30)
+    raw = resp.read().decode("utf-8")
+    events = [json.loads(ln) for ln in raw.strip().split("\n") if ln.strip()]
+
+    error_events = [e for e in events if e["event"] == "error"]
+    done_events = [e for e in events if e["event"] == "done"]
+    assert len(error_events) == 1
+    assert len(done_events) == 1
+    assert "bad-url" in error_events[0]["url"]
+
+    # failed_urls persistiert
+    state = load_state(Paths().state_json)
+    assert len(state.failed_urls) == 1
+    assert "bad-url" in state.failed_urls[0].url
+    assert "snapshot crashed" in state.failed_urls[0].error
+
+
+def test_batch_add_postings_rejects_empty_urls_list(running_server):
+    code, body = _post_json(running_server, "/api/batch-add-postings", {"urls": []})
+    assert code == 400
+
+
+def test_batch_add_postings_rejects_missing_master_profile(running_server, tmp_path):
+    code, body = _post_json(running_server, "/api/batch-add-postings", {
+        "urls": ["https://x"],
+    })
+    assert code == 500
+    assert "master_profile" in body["error"]
+
+
+def test_failed_urls_clear_removes_all(running_server, tmp_path):
+    state = BewerberState(failed_urls=[
+        FailedUrl(url="https://a", error="e1", at="2026-06-15T10:00:00"),
+        FailedUrl(url="https://b", error="e2", at="2026-06-15T11:00:00"),
+    ])
+    save_state(Paths().state_json, state)
+
+    code, body = _post_json(running_server, "/api/failed-urls/clear", {})
+    assert code == 200
+    assert body["removed"] == 2
+    assert load_state(Paths().state_json).failed_urls == []
+
+
+def test_failed_urls_remove_drops_one(running_server, tmp_path):
+    state = BewerberState(failed_urls=[
+        FailedUrl(url="https://a", error="e1", at="2026-06-15T10:00:00"),
+        FailedUrl(url="https://b", error="e2", at="2026-06-15T11:00:00"),
+    ])
+    save_state(Paths().state_json, state)
+
+    code, body = _post_json(running_server, "/api/failed-urls/remove", {"url": "https://a"})
+    assert code == 200
+    after = load_state(Paths().state_json).failed_urls
+    assert len(after) == 1
+    assert after[0].url == "https://b"
+
+
+def test_failed_urls_remove_missing_url_400(running_server):
+    code, _ = _post_json(running_server, "/api/failed-urls/remove", {})
+    assert code == 400
 
 
 # ---------------------------------------------------------------------------

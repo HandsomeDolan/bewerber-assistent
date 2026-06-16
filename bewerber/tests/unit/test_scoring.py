@@ -1,4 +1,4 @@
-from bewerber.discovery.scoring import score_job
+from bewerber.discovery.scoring import score_job, extract_and_score, BatchScoreResult
 from bewerber.shared.state_schema import RawJob, Scoring
 
 
@@ -36,6 +36,30 @@ def test_score_job_returns_scoring_from_llm(mocker):
     assert "Beschreibung zur Stelle" in user_prompt
     assert "Steve" in user_prompt  # master profile in prompt
     assert kwargs["schema"] is Scoring
+
+
+def test_extract_and_score_returns_combined_result(mocker):
+    """Ein LLM-Call liefert firma + rolle + scoring."""
+    fake_llm = mocker.Mock()
+    fake_llm.structured.return_value = BatchScoreResult(
+        firma="Stadt Leipzig",
+        rolle="Mitarbeiter*in Netzinfrastruktur",
+        scoring=Scoring(
+            fit_score=6, begruendung="passt teilweise",
+            matched_skills=["Projektmanagement"], missing_skills=["ITIL"],
+            red_flags=[], verbessern_in_anschreiben=[],
+        ),
+    )
+    result = extract_and_score(
+        posting_text="Wir suchen eine*n ... Stadt Leipzig ...",
+        master_yaml_text="person:\n  name: Steve",
+        llm=fake_llm,
+    )
+    assert result.firma == "Stadt Leipzig"
+    assert result.rolle == "Mitarbeiter*in Netzinfrastruktur"
+    assert result.scoring.fit_score == 6
+    # Schema fuer den LLM-Call war BatchScoreResult, nicht Scoring
+    assert fake_llm.structured.call_args.kwargs["schema"] is BatchScoreResult
 
 
 def test_score_job_uses_title_company_when_description_missing(mocker):
