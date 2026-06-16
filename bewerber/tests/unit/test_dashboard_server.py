@@ -976,8 +976,248 @@ def test_get_onboarding_without_cookie_redirects_to_login(running_server):
 def test_get_onboarding_with_cookie_renders_stub(running_server):
     code, body = _get(running_server, "/onboarding", with_session=True)
     assert code == 200
-    assert "Willkommen" in body
+    assert "Onboarding" in body
     assert "Test User" in body
+    assert "Step 1: Profil aus Dokumenten erstellen" in body
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Onboarding-Extraction (Upload + Background-Thread + Status-Poll)
+# ---------------------------------------------------------------------------
+
+def test_parse_multipart_single_file_field():
+    """Smoke-Test fuer den selbstgeschriebenen Multipart-Parser."""
+    from bewerber.dashboard.server import _parse_multipart
+    boundary = "----testboundary"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="files"; filename="lebenslauf.pdf"\r\n'
+        "Content-Type: application/pdf\r\n\r\n"
+        "%PDF-1.4 dummy\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
+    fields = _parse_multipart({"Content-Type": f"multipart/form-data; boundary={boundary}"}, body)
+    assert "files" in fields
+    assert len(fields["files"]) == 1
+    content, fname = fields["files"][0]
+    assert fname == "lebenslauf.pdf"
+    assert content == b"%PDF-1.4 dummy"
+
+
+def test_parse_multipart_two_file_fields_same_name():
+    """Mehrere Files unter dem gleichen Form-Feldnamen 'files'."""
+    from bewerber.dashboard.server import _parse_multipart
+    boundary = "----b"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="files"; filename="a.pdf"\r\n\r\n'
+        "AAA\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="files"; filename="b.pdf"\r\n\r\n'
+        "BBB\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
+    fields = _parse_multipart({"Content-Type": f"multipart/form-data; boundary={boundary}"}, body)
+    assert len(fields["files"]) == 2
+    assert {fn for _, fn in fields["files"]} == {"a.pdf", "b.pdf"}
+
+
+def test_onboarding_extract_starts_background_job_returns_job_id(running_server, tmp_path, mocker):
+    """Upload-Happy-Path: Files landen in einem temp-Dir, Thread startet, job_id wird returnt."""
+    from bewerber.dashboard import server as srv
+
+    # Background-Thread soll NICHT echt extrahieren - sofort 'done' melden
+    def fake_run(job_id, upload_dir, paths):
+        with srv._onboarding_lock:
+            srv._onboarding_jobs[job_id] = {
+                "status": "done",
+                "started_at": "2026-06-16T12:00",
+                "summary": {"name": "Test User", "stellen": 1, "ausbildung": 0, "sprachen": 1},
+                "master_profile_path": str(paths.master_profile),
+            }
+    mocker.patch("bewerber.dashboard.server._run_onboarding_extraction", side_effect=fake_run)
+
+    # Multipart-Body manuell bauen
+    boundary = "----py-test-boundary"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="files"; filename="lebenslauf.pdf"\r\n\r\n'
+        "%PDF dummy\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/onboarding/extract",
+        data=body,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Cookie": SESSION_COOKIE,
+        },
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=5)
+    assert resp.status == 200
+    data = json.loads(resp.read())
+    assert data["ok"] is True
+    assert "job_id" in data
+    assert data["files"] == ["lebenslauf.pdf"]
+
+
+def test_onboarding_extract_rejects_request_without_files(running_server, mocker):
+    """Multipart-Body, aber kein 'files'-Feld -> 400."""
+    boundary = "----py-test-empty"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="other"\r\n\r\n'
+        "not-a-file\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/onboarding/extract",
+        data=body,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Cookie": SESSION_COOKIE,
+        },
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(req, timeout=5)
+        raise AssertionError("expected 400")
+    except urllib.error.HTTPError as e:
+        assert e.code == 400
+
+
+def test_onboarding_extract_requires_login(running_server):
+    """Ohne Cookie -> 401."""
+    boundary = "----b"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="files"; filename="x.pdf"\r\n\r\n'
+        "x\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/onboarding/extract",
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(req, timeout=5)
+        raise AssertionError("expected 401")
+    except urllib.error.HTTPError as e:
+        assert e.code == 401
+
+
+def test_onboarding_status_returns_running_state(running_server):
+    """Ohne dass jemals ein Job lief: explizit einen running-Job setzen + polling."""
+    from bewerber.dashboard import server as srv
+    with srv._onboarding_lock:
+        srv._onboarding_jobs["abc123"] = {"status": "running", "started_at": "2026-06-16T12:00"}
+    code, body = _get(running_server, "/api/onboarding/status?job_id=abc123")
+    assert code == 200
+    data = json.loads(body)
+    assert data["status"] == "running"
+
+
+def test_onboarding_status_returns_done_with_summary(running_server):
+    from bewerber.dashboard import server as srv
+    with srv._onboarding_lock:
+        srv._onboarding_jobs["done-job"] = {
+            "status": "done", "started_at": "2026-06-16T12:00",
+            "summary": {"name": "Steve", "stellen": 3, "ausbildung": 2, "sprachen": 1},
+            "master_profile_path": "/some/path",
+        }
+    code, body = _get(running_server, "/api/onboarding/status?job_id=done-job")
+    assert code == 200
+    data = json.loads(body)
+    assert data["status"] == "done"
+    assert data["summary"]["name"] == "Steve"
+
+
+def test_onboarding_status_unknown_job_returns_404(running_server):
+    code, body = _get(running_server, "/api/onboarding/status?job_id=ghost-9999")
+    assert code == 404
+
+
+def test_onboarding_status_missing_job_id_returns_400(running_server):
+    code, body = _get(running_server, "/api/onboarding/status")
+    assert code == 400
+
+
+def test_run_onboarding_extraction_writes_master_profile_yaml(tmp_path, mocker):
+    """Background-Worker integration: bei Erfolg landet master_profile.yaml + summary."""
+    from bewerber.dashboard import server as srv
+    from bewerber.profile.extractor import ExtractedProfile
+    from bewerber.shared.profile_schema import Person, Berufserfahrung, Sprache, Ausbildung
+
+    fake_profile = ExtractedProfile(
+        person=Person(name="Erika Mustermann", email="e@m.de"),
+        berufsprofil="x",
+        zielposition=[],
+        ausbildung=[Ausbildung(art="Studium", institution="TU", abschluss="B.Sc.")],
+        berufserfahrung=[
+            Berufserfahrung(position="PM", firma="Acme", von="2020-01", aufgaben=["a"], erfolge=[], skills=["Python"]),
+        ],
+        sprachen=[Sprache(sprache="Deutsch", niveau="C2")],
+    )
+    mocker.patch(
+        "bewerber.profile.extractor.extract_profile_from_documents",
+        return_value=fake_profile,
+    )
+    mocker.patch("bewerber.shared.llm.LLMClient.for_scoring", return_value=mocker.Mock())
+
+    paths = Paths()
+    paths.bewerber_dir.mkdir(parents=True, exist_ok=True)
+    # Bestehendes master_profile.yaml entfernen, sodass Worker es frisch anlegt
+    if paths.master_profile.exists():
+        paths.master_profile.unlink()
+
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+    (upload_dir / "dummy.pdf").write_bytes(b"%PDF dummy")
+
+    job_id = "test-job"
+    with srv._onboarding_lock:
+        srv._onboarding_jobs[job_id] = {"status": "running"}
+    srv._run_onboarding_extraction(job_id, upload_dir, paths)
+
+    # State: done
+    with srv._onboarding_lock:
+        state = srv._onboarding_jobs[job_id]
+    assert state["status"] == "done"
+    assert state["summary"]["name"] == "Erika Mustermann"
+    assert state["summary"]["stellen"] == 1
+    # Datei geschrieben
+    assert paths.master_profile.is_file()
+    import yaml as _yaml
+    loaded = _yaml.safe_load(paths.master_profile.read_text())
+    assert loaded["person"]["name"] == "Erika Mustermann"
+    assert loaded["projekte"] == []   # projekte werden NICHT vom Extraktor befuellt
+
+
+def test_run_onboarding_extraction_records_failure(tmp_path, mocker):
+    """Wenn extract_profile_from_documents wirft: status='failed' + error-Message."""
+    from bewerber.dashboard import server as srv
+    mocker.patch(
+        "bewerber.profile.extractor.extract_profile_from_documents",
+        side_effect=RuntimeError("LLM quota exhausted"),
+    )
+    mocker.patch("bewerber.shared.llm.LLMClient.for_scoring", return_value=mocker.Mock())
+
+    paths = Paths()
+    paths.bewerber_dir.mkdir(parents=True, exist_ok=True)
+    upload_dir = tmp_path / "u"; upload_dir.mkdir()
+
+    job_id = "fail-job"
+    with srv._onboarding_lock:
+        srv._onboarding_jobs[job_id] = {"status": "running"}
+    srv._run_onboarding_extraction(job_id, upload_dir, paths)
+
+    with srv._onboarding_lock:
+        state = srv._onboarding_jobs[job_id]
+    assert state["status"] == "failed"
+    assert "LLM quota" in state["error"]
 
 
 def test_invalid_session_cookie_treated_as_missing(running_server):

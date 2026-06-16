@@ -47,8 +47,11 @@ from __future__ import annotations
 
 import http.cookies
 import json
+import logging
 import os
 import subprocess
+import threading
+import uuid
 import urllib.parse
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -74,6 +77,106 @@ from bewerber.dashboard.render import (
 
 SESSION_COOKIE_NAME = "bewerber_session"
 SESSION_MAX_AGE_SECONDS = 30 * 24 * 3600   # 30 Tage
+
+# ------------------------------------------------------------------
+# Onboarding-Extraktion: Background-Thread-State (modul-level)
+# ------------------------------------------------------------------
+# Mapping job_id -> {"status": "running"|"done"|"failed",
+#                    "result"?: {...}, "error"?: str, "started_at": iso}
+# Lock fuer Schreiben (stdlib http.server ist single-threaded fuer Request-
+# Handling, aber unsere Background-Threads schreiben parallel).
+_onboarding_jobs: dict[str, dict] = {}
+_onboarding_lock = threading.Lock()
+
+log = logging.getLogger(__name__)
+
+
+def _parse_multipart(headers, body: bytes) -> dict[str, list[tuple[bytes, Optional[str]]]]:
+    """Sehr fokussierter multipart/form-data-Parser auf reinem stdlib.
+
+    Returns:  field_name -> list of (content_bytes, filename_or_None).
+              filename ist None, wenn das Feld kein File-Upload war.
+
+    Unterstuetzt das Browser-Standardformat. Keine Spezialfaelle wie
+    Multipart-in-Multipart oder Content-Transfer-Encoding != 8bit.
+    """
+    ctype = headers.get("Content-Type", "")
+    if "boundary=" not in ctype:
+        return {}
+    boundary = ctype.split("boundary=", 1)[1].split(";", 1)[0].strip()
+    if boundary.startswith('"') and boundary.endswith('"'):
+        boundary = boundary[1:-1]
+    boundary_bytes = ("--" + boundary).encode()
+    out: dict[str, list[tuple[bytes, Optional[str]]]] = {}
+    for part in body.split(boundary_bytes):
+        s = part.strip()
+        if not s or s == b"--":
+            continue
+        if b"\r\n\r\n" not in part:
+            continue
+        header_block, content = part.split(b"\r\n\r\n", 1)
+        if header_block.startswith(b"\r\n"):
+            header_block = header_block[2:]
+        if content.endswith(b"\r\n"):
+            content = content[:-2]
+        disposition = ""
+        for line in header_block.decode("utf-8", errors="replace").split("\r\n"):
+            if line.lower().startswith("content-disposition"):
+                disposition = line
+                break
+        name: Optional[str] = None
+        filename: Optional[str] = None
+        for token in disposition.split(";"):
+            token = token.strip()
+            if token.startswith('name="') and token.endswith('"'):
+                name = token[6:-1]
+            elif token.startswith('filename="') and token.endswith('"'):
+                filename = token[10:-1]
+        if name:
+            out.setdefault(name, []).append((content, filename))
+    return out
+
+
+def _run_onboarding_extraction(job_id: str, upload_dir: Path, paths: Paths) -> None:
+    """Background-Worker: laeuft in eigenem Thread, schreibt master_profile.yaml am Ende."""
+    started = datetime.now().isoformat(timespec="seconds")
+    try:
+        from bewerber.profile.extractor import extract_profile_from_documents
+        from bewerber.shared.llm import LLMClient
+        import yaml as _yaml
+
+        llm = LLMClient.for_scoring()
+        profile = extract_profile_from_documents(upload_dir, llm=llm)
+
+        data = profile.model_dump(exclude_none=True)
+        data["projekte"] = []  # erst spaeter via `bewerber projects scan` befuellt
+        paths.bewerber_dir.mkdir(parents=True, exist_ok=True)
+        paths.master_profile.write_text(
+            _yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+
+        summary = {
+            "name": profile.person.name,
+            "stellen": len(profile.berufserfahrung),
+            "ausbildung": len(profile.ausbildung),
+            "sprachen": len(profile.sprachen),
+        }
+        with _onboarding_lock:
+            _onboarding_jobs[job_id] = {
+                "status": "done",
+                "started_at": started,
+                "summary": summary,
+                "master_profile_path": str(paths.master_profile),
+            }
+    except Exception as e:  # noqa: BLE001 - background, log + report-to-client
+        log.exception("[onboarding] extraction %s failed", job_id)
+        with _onboarding_lock:
+            _onboarding_jobs[job_id] = {
+                "status": "failed",
+                "started_at": started,
+                "error": str(e)[:500],
+            }
 
 
 def _now_iso() -> str:
@@ -163,6 +266,11 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib API
+        # Querystring vom Pfad trennen, damit GET /api/foo?bar=baz matched
+        parsed_path = urllib.parse.urlsplit(self.path).path
+        if parsed_path == "/api/onboarding/status":
+            self._handle_onboarding_status()
+            return
         if self.path in ("/", "/index.html"):
             session = self._session_user()
             if not session:
@@ -234,6 +342,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_login()
             elif self.path == "/logout":
                 self._handle_logout()
+            elif self.path == "/api/onboarding/extract":
+                self._handle_onboarding_extract()
             else:
                 self._send_json(404, {"error": "unknown endpoint"})
         except Exception as e:  # noqa: BLE001
@@ -549,6 +659,67 @@ class _Handler(BaseHTTPRequestHandler):
                     pass
 
         emit({"event": "complete", "total": total})
+
+    def _handle_onboarding_extract(self) -> None:
+        """Receives PDFs via multipart, starts background extraction thread."""
+        if not self._session_user():
+            self._send_json(401, {"error": "Login erforderlich"})
+            return
+
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0:
+            self._send_json(400, {"error": "Body fehlt"})
+            return
+        body = self.rfile.read(length)
+        fields = _parse_multipart(self.headers, body)
+        files = fields.get("files", [])
+        files = [(c, fn) for c, fn in files if fn and c]
+        if not files:
+            self._send_json(400, {"error": "Mindestens eine Datei erforderlich (Form-Feld 'files')"})
+            return
+
+        # Files in temp-Dir ablegen
+        import tempfile
+        upload_dir = Path(tempfile.mkdtemp(prefix="bewerber-onboarding-"))
+        saved = []
+        for content, fname in files:
+            safe = Path(fname or "upload").name
+            target = upload_dir / safe
+            target.write_bytes(content)
+            saved.append(safe)
+
+        # Background-Thread anstossen
+        job_id = str(uuid.uuid4())
+        with _onboarding_lock:
+            _onboarding_jobs[job_id] = {
+                "status": "running",
+                "started_at": _now_iso(),
+                "files": saved,
+            }
+        threading.Thread(
+            target=_run_onboarding_extraction,
+            args=(job_id, upload_dir, self.paths),
+            daemon=True,
+        ).start()
+
+        self._send_json(200, {"ok": True, "job_id": job_id, "files": saved})
+
+    def _handle_onboarding_status(self) -> None:
+        """GET /api/onboarding/status?job_id=X -> aktueller Stand des Hintergrund-Jobs."""
+        if not self._session_user():
+            self._send_json(401, {"error": "Login erforderlich"})
+            return
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        job_id = (query.get("job_id") or [""])[0]
+        if not job_id:
+            self._send_json(400, {"error": "job_id Query-Parameter fehlt"})
+            return
+        with _onboarding_lock:
+            state = _onboarding_jobs.get(job_id)
+        if state is None:
+            self._send_json(404, {"error": f"job {job_id!r} unbekannt"})
+            return
+        self._send_json(200, state)
 
     def _handle_login(self) -> None:
         """Setzt das Session-Cookie auf 'Vorname Nachname'."""
