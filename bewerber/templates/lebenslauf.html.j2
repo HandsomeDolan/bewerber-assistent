@@ -81,7 +81,9 @@ ul.bullets li { margin-bottom: 2pt; }
 .projektstelle-header { font-weight: 700; font-size: 10.5pt; margin: 0 0 4pt 0; }
 .projektblock { margin: 6pt 0 8pt 0; page-break-inside: avoid; }
 .projektblock-title { font-weight: 700; font-size: 10pt; margin: 0 0 2pt 0; }
-.ergebnis { font-weight: 700; }
+/* Ergebnis-Bullets bekommen keinen Aufzaehlpunkt - der Pfeil `➔` im Text
+   uebernimmt diese Rolle. Das verhindert den optischen Doppel-Marker (Punkt + Pfeil). */
+.ergebnis { font-weight: 700; list-style: none; }
 .bildung-entry {
   display: flex; justify-content: space-between; align-items: baseline;
   margin: 4pt 0;
