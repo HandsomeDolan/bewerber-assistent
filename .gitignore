@@ -27,5 +27,8 @@ bewerber/logs/
 bewerber/searches.yaml.*-full
 bewerber/Logs.txt
 
+# Internal development planning docs (kept local, not pushed to public repo)
+docs/superpowers/
+
 # OS
 .DS_Store
