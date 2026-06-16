@@ -1,15 +1,16 @@
 # Bewerber-Assistent: täglicher Discover-Run, Montag bis Freitag, 16:00.
 #
 # Installation:
-#   1. Pfad pruefen (siehe unten) - bei Bedarf an dein Setup anpassen.
-#   2. `crontab -e` ausfuehren und die folgende Zeile einfuegen (ohne `#`).
+#   1. Den Platzhalter $REPO weiter unten durch den ABSOLUTEN Pfad zu deinem
+#      Bewerber-Assistent-Klon ersetzen (cron versteht $HOME etc. nicht).
+#   2. `crontab -e` ausfuehren und die angepasste Zeile einfuegen (ohne `#`).
 #   3. Speichern -> cron uebernimmt sofort.
 #
-# Logs landen unter bewerber/logs/discover-YYYY-MM-DD.log (eine Datei pro Tag).
-# Tail aktueller Run:  tail -f bewerber/logs/discover-$(date +%Y-%m-%d).log
+# Logs landen unter $REPO/bewerber/logs/discover-YYYY-MM-DD.log (eine Datei pro Tag).
+# Tail aktueller Run:  tail -f $REPO/bewerber/logs/discover-$(date +%Y-%m-%d).log
 #
 # Stunden 0-23, Tage des Monats 1-31, Monate 1-12, Wochentage 0-7 (0+7=Sonntag, 1=Mo)
 # Format:  Minute Stunde TagImMonat Monat Wochentag  Befehl
 #                                              1-5 = Mo-Fr
 
-0 16 * * 1-5 /Users/steve/Documents/Bewerber_Assistent/bewerber/scripts/run-discover.sh
+0 16 * * 1-5 $REPO/bewerber/scripts/run-discover.sh

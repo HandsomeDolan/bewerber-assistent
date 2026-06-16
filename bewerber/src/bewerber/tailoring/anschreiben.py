@@ -35,7 +35,7 @@ class AnschreibenContent(BaseModel):
     einleitung: str = Field(description="1-2 Sätze: Bezug + Interesse")
     hauptteil: str = Field(description="3-5 Sätze, ggf. Absätze. Konkrete Erfolge aus Master.")
     schluss: str = Field(description="2-4 Sätze: ggf. Starttermin + Gehalt natürlich einweben, Einladung zum Gespräch")
-    gruss: str = Field(description="z.B. 'Mit freundlichen Grüßen\\nSteve Eigenwillig'")
+    gruss: str = Field(description="z.B. 'Mit freundlichen Grüßen\\n<Vorname Nachname>'")
 
     def to_markdown(self) -> str:
         """Combine all sections into a single Markdown document."""

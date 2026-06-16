@@ -4,19 +4,29 @@ from bewerber.shared.paths import Paths
 
 def test_paths_resolve_from_workspace(monkeypatch, tmp_path):
     monkeypatch.setenv("BEWERBER_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path / "docs"))
     p = Paths()
     assert p.workspace == tmp_path
     assert p.bewerber_dir == tmp_path / "bewerber"
     assert p.master_profile == tmp_path / "bewerber" / "master_profile.yaml"
-    assert p.documents == Path("/Users/steve/Documents")
-    assert p.bewerbungsunterlagen == Path("/Users/steve/Documents/Bewerbungsunterlagen")
+    assert p.documents == tmp_path / "docs"
+    assert p.bewerbungsunterlagen == tmp_path / "docs" / "Bewerbungsunterlagen"
     assert p.bewerbungen == p.bewerbungsunterlagen / "Bewerbungen"
 
 
-def test_paths_default_workspace(monkeypatch):
+def test_paths_default_workspace_uses_cwd(monkeypatch, tmp_path):
+    """Ohne BEWERBER_WORKSPACE-Env: workspace = aktuelles Verzeichnis."""
     monkeypatch.delenv("BEWERBER_WORKSPACE", raising=False)
+    monkeypatch.chdir(tmp_path)
     p = Paths()
-    assert p.workspace == Path("/Users/steve/Documents/Bewerber_Assistent")
+    assert p.workspace == tmp_path
+
+
+def test_paths_default_documents_uses_home(monkeypatch):
+    """Ohne BEWERBER_DOCUMENTS-Env: documents = ~/Documents."""
+    monkeypatch.delenv("BEWERBER_DOCUMENTS", raising=False)
+    p = Paths()
+    assert p.documents == Path.home() / "Documents"
 
 
 def test_project_folders_filter_excludes_non_matching(monkeypatch, tmp_path):

@@ -10,21 +10,19 @@
 #
 # Fehlt eine Datei auf der Platte, wird sie beim Kopieren uebersprungen und
 # in posting_meta.yaml unter `missing_anlagen` vermerkt (kein Abbruch).
+#
+# Komfortabler ueber die Web-UI editieren: http://127.0.0.1:<port>/anlagen
 
 anlagen:
   - label: "Arbeitszeugnisse"
     files:
-      - /Users/steve/Documents/Bewerbungsunterlagen/_anlagen/Arbeitszeugnis_Magna_Eigenwillig.pdf
+      - /absoluter/Pfad/zu/deinem/_anlagen/Arbeitszeugnis.pdf
 
   - label: "Technikerzeugnis"
     files:
-      - /Users/steve/Documents/Bewerbungsunterlagen/_anlagen/Technikerzeugnis_Seite_1.pdf
-      - /Users/steve/Documents/Bewerbungsunterlagen/_anlagen/Technikerzeugnis_Seite_2.pdf
+      - /absoluter/Pfad/zu/deinem/_anlagen/Technikerzeugnis_Seite_1.pdf
+      - /absoluter/Pfad/zu/deinem/_anlagen/Technikerzeugnis_Seite_2.pdf
 
-  - label: "Ausbilder-Eignungsverordnung"
+  - label: "Sonstige Zertifikate"
     files:
-      - /Users/steve/Documents/Bewerbungsunterlagen/_anlagen/Ausbilder_Eignungsverordnung.pdf
-
-  - label: "REFA-Urkunde"
-    files:
-      - /Users/steve/Documents/Bewerbungsunterlagen/_anlagen/REFA_Urkunde.pdf
+      - /absoluter/Pfad/zu/deinem/_anlagen/Zertifikat.pdf

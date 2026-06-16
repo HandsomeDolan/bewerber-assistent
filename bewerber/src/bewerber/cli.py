@@ -15,6 +15,7 @@ from bewerber.profile.extractor import (
 )
 from bewerber.profile.projects import scan_project
 from bewerber.profile.sync import sync_projects_into_profile
+from bewerber.setup_wizard import run_setup_wizard
 from bewerber.shared.llm import LLMClient
 from bewerber.shared.paths import Paths
 from bewerber.tailoring.orchestrator import TailorInput, tailor, rebuild_pdfs
@@ -289,6 +290,18 @@ def cmd_regen() -> None:
     click.echo(f"✔ Dashboard geschrieben: {paths.dashboard_html} ({len(state.jobs)} Jobs)")
 
 
+@main.command("setup")
+@click.option("--force", is_flag=True, help="Bestehende .env ueberschreiben.")
+def cmd_setup(force: bool) -> None:
+    """Interaktiver Einrichtungs-Wizard fuer die .env-Datei.
+
+    Fragt API-Keys + Provider-Reihenfolge ab und schreibt eine .env in
+    den bewerber/-Ordner. Standardmaessig wird eine vorhandene .env NICHT
+    ueberschrieben (Schutz vor versehentlichem Verlust der API-Keys).
+    """
+    run_setup_wizard(force=force)
+
+
 @main.command("serve")
 @click.option("--port", type=int, default=0, help="HTTP-Port (default: ephemeral).")
 @click.option("--no-browser", is_flag=True, help="Browser nicht automatisch öffnen.")
@@ -301,6 +314,12 @@ def cmd_serve(port: int, no_browser: bool) -> None:
     """
     from bewerber.dashboard.server import serve as start_server
     paths = Paths()
+    # Erstmaliger Start: .env fehlt -> Setup-Wizard anstossen
+    env_path = paths.bewerber_dir / ".env"
+    if not env_path.is_file():
+        click.echo("Keine .env gefunden - starte Setup-Wizard ...\n")
+        run_setup_wizard()
+        load_dotenv(env_path, override=True)  # Env-Werte ins laufende Prozess-os.environ ziehen
     # Also write a static dashboard.html so the file is up-to-date for offline use.
     state = load_state(paths.state_json)
     paths.dashboard_html.write_text(render_dashboard(state), encoding="utf-8")

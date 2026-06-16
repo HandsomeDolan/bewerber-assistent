@@ -24,6 +24,8 @@ bewerber/anschreiben_examples/
 bewerber/anlagen.yaml
 bewerber/dashboard.html
 bewerber/logs/
+bewerber/searches.yaml.*-full
+bewerber/Logs.txt
 
 # OS
 .DS_Store

@@ -10,13 +10,14 @@ class Paths:
     _LEADING_NUMBER_REGEX = re.compile(r"^(\d+)")
 
     def __init__(self) -> None:
+        # Defaults: BEWERBER_WORKSPACE = aktuelles Verzeichnis (typischerweise
+        # das Projekt-Root nach `cd <repo>`), BEWERBER_DOCUMENTS = ~/Documents.
+        # Beides per Env-Var ueberschreibbar.
         self.workspace = Path(
-            os.environ.get(
-                "BEWERBER_WORKSPACE", "/Users/steve/Documents/Bewerber_Assistent"
-            )
+            os.environ.get("BEWERBER_WORKSPACE", str(Path.cwd()))
         )
         self.documents = Path(
-            os.environ.get("BEWERBER_DOCUMENTS", "/Users/steve/Documents")
+            os.environ.get("BEWERBER_DOCUMENTS", str(Path.home() / "Documents"))
         )
 
     @property
