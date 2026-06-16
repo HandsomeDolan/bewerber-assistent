@@ -6,6 +6,53 @@ from bewerber.shared.state_schema import (
 )
 
 
+def test_scoring_coerces_string_to_list_for_verbessern_field():
+    """Regression: Gemini liefert manchmal einen String statt einer Liste fuer
+    verbessern_in_anschreiben/red_flags/etc. Schema muss das tolerant in [str] wandeln,
+    sonst crashen Batch-Laeufe an Pydantic-Validation."""
+    s = Scoring.model_validate({
+        "fit_score": 6,
+        "begruendung": "ok",
+        "verbessern_in_anschreiben": "Betone die einzigartige Mischung aus IT-Projekten und Praxiserfahrung.",
+    })
+    assert s.verbessern_in_anschreiben == [
+        "Betone die einzigartige Mischung aus IT-Projekten und Praxiserfahrung.",
+    ]
+
+
+def test_scoring_coerces_string_for_all_list_fields():
+    s = Scoring.model_validate({
+        "fit_score": 5, "begruendung": "x",
+        "matched_skills": "Python",
+        "missing_skills": "ITIL",
+        "red_flags": "Vor-Ort-Zwang",
+        "verbessern_in_anschreiben": "Beispiele zu KI nennen",
+    })
+    assert s.matched_skills == ["Python"]
+    assert s.missing_skills == ["ITIL"]
+    assert s.red_flags == ["Vor-Ort-Zwang"]
+    assert s.verbessern_in_anschreiben == ["Beispiele zu KI nennen"]
+
+
+def test_scoring_empty_string_becomes_empty_list():
+    s = Scoring.model_validate({
+        "fit_score": 5, "begruendung": "x",
+        "matched_skills": "",
+        "red_flags": "   ",
+    })
+    assert s.matched_skills == []
+    assert s.red_flags == []
+
+
+def test_scoring_keeps_normal_list_input():
+    """Backward compat: Listen funktionieren weiter wie immer."""
+    s = Scoring.model_validate({
+        "fit_score": 7, "begruendung": "x",
+        "matched_skills": ["Python", "n8n", "REFA"],
+    })
+    assert s.matched_skills == ["Python", "n8n", "REFA"]
+
+
 def test_jobstatus_enum_has_expected_values():
     assert JobStatus.DISCOVERED.value == "discovered"
     assert JobStatus.SHORTLISTED.value == "shortlisted"

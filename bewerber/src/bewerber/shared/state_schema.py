@@ -1,7 +1,21 @@
 from datetime import date
 from enum import Enum
-from typing import Optional
-from pydantic import BaseModel, Field, ConfigDict, computed_field
+from typing import Annotated, Optional
+from pydantic import BaseModel, BeforeValidator, Field, ConfigDict, computed_field
+
+
+def _coerce_str_to_list(value):
+    """Manche LLMs (Gemini insbesondere) returnen einen String fuer list[str]-Felder.
+    Statt ValidationError zu werfen, wrappen wir den String in ein 1-Element-Array.
+    Leere/whitespace-only Strings werden zu []. Listen bleiben unveraendert.
+    """
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    return value
+
+
+_ListOfStr = Annotated[list[str], BeforeValidator(_coerce_str_to_list)]
 
 
 class JobStatus(str, Enum):
@@ -37,10 +51,12 @@ class Scoring(BaseModel):
     model_config = ConfigDict(extra="forbid")
     fit_score: int = Field(ge=1, le=10, description="1 (kein Match) bis 10 (perfekt).")
     begruendung: str = Field(description="2-3 Sätze: warum dieser Score.")
-    matched_skills: list[str] = Field(default_factory=list)
-    missing_skills: list[str] = Field(default_factory=list)
-    red_flags: list[str] = Field(default_factory=list)
-    verbessern_in_anschreiben: list[str] = Field(default_factory=list)
+    # _ListOfStr wrappt einen String automatisch in [String], falls die LLM
+    # statt eines Arrays einen einzelnen Hinweis als String zurueckliefert.
+    matched_skills: _ListOfStr = Field(default_factory=list)
+    missing_skills: _ListOfStr = Field(default_factory=list)
+    red_flags: _ListOfStr = Field(default_factory=list)
+    verbessern_in_anschreiben: _ListOfStr = Field(default_factory=list)
 
 
 class StatusHistoryEntry(BaseModel):

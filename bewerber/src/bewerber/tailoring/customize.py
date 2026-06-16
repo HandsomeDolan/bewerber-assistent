@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 from bewerber.shared.llm import LLMClient
 from bewerber.shared.profile_schema import MasterProfile
+from bewerber.shared.state_schema import _ListOfStr  # noqa: PLC2701 - intentional reuse
 
 
 CUSTOMIZE_SYSTEM_PROMPT = """Du bist ein erfahrener deutscher Karriere-Coach. Du passt einen vorhandenen Lebenslauf
@@ -67,11 +68,11 @@ class ProjekterfahrungBlock(BaseModel):
     titel: str = Field(
         description="Allgemeiner thematischer Titel (z. B. 'Workflow-Automatisierung mit n8n'). NICHT Projekt-/Ordnername."
     )
-    aufgaben: list[str] = Field(
+    aufgaben: _ListOfStr = Field(
         default_factory=list,
         description="3–6 Bullets, die mehrere Projekte thematisch zusammenführen können.",
     )
-    ergebnisse: list[str] = Field(
+    ergebnisse: _ListOfStr = Field(
         default_factory=list,
         description="1–4 konkrete Outcomes/Zahlen — Plain-Text-Aussagen ohne '→'-Präfix.",
     )
@@ -84,7 +85,7 @@ class CustomBerufserfahrung(BaseModel):
     von: str
     bis: Optional[str] = None
     standort: Optional[str] = None
-    werdegang_bullets: list[str] = Field(
+    werdegang_bullets: _ListOfStr = Field(
         default_factory=list,
         description="4–6 high-level Aufgaben-Bullets für die WERDEGANG-Sektion (ohne Ergebnisse).",
     )
@@ -98,11 +99,11 @@ class CustomBerufserfahrung(BaseModel):
 class SkillKategorien(BaseModel):
     """Skills sortiert in die 5 Standard-Kategorien des Lebenslaufs."""
     model_config = ConfigDict(extra="forbid")
-    prozessmanagement: list[str] = Field(default_factory=list)
-    projektmanagement: list[str] = Field(default_factory=list)
-    kommunikation_training: list[str] = Field(default_factory=list)
-    automatisierung_ki: list[str] = Field(default_factory=list)
-    vertrieb: list[str] = Field(default_factory=list)
+    prozessmanagement: _ListOfStr = Field(default_factory=list)
+    projektmanagement: _ListOfStr = Field(default_factory=list)
+    kommunikation_training: _ListOfStr = Field(default_factory=list)
+    automatisierung_ki: _ListOfStr = Field(default_factory=list)
+    vertrieb: _ListOfStr = Field(default_factory=list)
 
 
 class CustomizedResume(BaseModel):
