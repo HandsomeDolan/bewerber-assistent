@@ -23,10 +23,11 @@ class JobStatus(str, Enum):
     SHORTLISTED = "shortlisted"
     TAILORED = "tailored"
     APPLIED = "applied"
-    INTERVIEW = "interview"
+    INTERVIEW = "interview"   # "Eingeladen" - Einladung zum Vorstellungsgespraech
     OFFER = "offer"
-    REJECTED = "rejected"
-    WITHDRAWN = "withdrawn"
+    REJECTED = "rejected"     # "Abgelehnt" - vom Arbeitgeber
+    WITHDRAWN = "withdrawn"   # "Zurueckgezogen" - eigene Ruecknahme nach Bewerbung
+    DECLINED = "declined"     # "Abgewaehlt" - eigene Entscheidung, sich erst gar nicht zu bewerben
 
 
 class RawJob(BaseModel):

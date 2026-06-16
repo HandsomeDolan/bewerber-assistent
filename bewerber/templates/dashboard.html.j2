@@ -31,6 +31,9 @@ tr:hover { background: #f8f8f8; }
 .status-offer { background: #b0f0b0; font-weight: 700; }
 .status-rejected { background: #f8d8d8; color: #555; }
 .status-withdrawn { background: #e0e0e0; color: #777; }
+.status-declined { background: #ede0e8; color: #777; font-style: italic; }
+.status-select-wrap { font-size: 12px; color: #444; margin-left: 12px; }
+.status-select-wrap select { font: inherit; font-size: 12px; padding: 2px 6px; margin-left: 4px; }
 .errors { background: #fff4e0; border: 1px solid #f0c890; padding: 8px 12px; margin: 12px 0; border-radius: 4px; font-size: 12px; }
 .errors b { color: #aa5a00; }
 .detail { display: none; padding: 12px; background: #fafafa; border-left: 3px solid #888; margin: 4px 0; }
@@ -255,14 +258,15 @@ tr.expanded + tr.detail { display: table-row; }
   <label>Suche: <input type="search" id="q" placeholder="Firma, Titel, Beschreibung …"></label>
   <label>Status: <select id="filter-status">
     <option value="">alle</option>
-    <option value="discovered">discovered</option>
-    <option value="shortlisted">shortlisted</option>
-    <option value="tailored">tailored</option>
-    <option value="applied">applied</option>
-    <option value="interview">interview</option>
-    <option value="offer">offer</option>
-    <option value="rejected">rejected</option>
-    <option value="withdrawn">withdrawn</option>
+    <option value="discovered">entdeckt</option>
+    <option value="shortlisted">vorgemerkt</option>
+    <option value="tailored">getailored</option>
+    <option value="applied">beworben</option>
+    <option value="interview">eingeladen</option>
+    <option value="offer">angebot</option>
+    <option value="rejected">abgelehnt</option>
+    <option value="withdrawn">zurueckgezogen</option>
+    <option value="declined">abgewaehlt</option>
   </select></label>
   <label>Min Score: <select id="filter-score">
     <option value="0">alle</option>
@@ -346,7 +350,7 @@ function renderRows(rows) {
     tr.dataset.jid = r.jid;
     tr.innerHTML = `
       <td class="score score-${score}">${score || "—"}</td>
-      <td><span class="status status-${r.status}">${r.status}</span></td>
+      <td><span class="status status-${r.status}">${statusLabel(r.status)}</span></td>
       <td>${appliedDate(r) || "—"}</td>
       <td class="notes-cell">${notesPreview(r.notes)}</td>
       <td>${escapeHtml(r.raw.company)}</td>
@@ -414,9 +418,16 @@ function detailHtml(r) {
          </button>
          <span class="tailor-status" id="tailor-status-${r.jid}" style="display:none;"></span>
        </div>`;
+  const statusOptions = Object.entries(STATUS_LABELS)
+    .map(([v, lbl]) => `<option value="${v}" ${r.status === v ? "selected" : ""}>${lbl}</option>`)
+    .join("");
+  const statusSelect = `<label class="status-select-wrap" onclick="event.stopPropagation()">
+    Status:
+    <select onchange="changeStatus('${r.jid}', this.value, event)">${statusOptions}</select>
+  </label>`;
   return `
     <div class="links">${linkPost} ${linkCv} ${linkAns} ${linkApp} ${folderBtn}</div>
-    <div style="margin-top:6px;">${appliedToggle}</div>
+    <div style="margin-top:6px;">${appliedToggle} ${statusSelect}</div>
     <div style="margin-top:6px;">${tailorBtn}</div>
     <h4>Scoring</h4>
     <div><b>Fit:</b> ${scoring.fit_score || "—"} — ${escapeHtml(scoring.begruendung || "")}</div>
@@ -466,6 +477,46 @@ function buildDescriptionHtml(desc, jid) {
 function arbeitsmodellBadge(value) {
   if (!value) return "";
   return ` <span class="arbeitsmodell-badge arbeitsmodell-${value}">${value}</span>`;
+}
+
+const STATUS_LABELS = {
+  discovered: "entdeckt",
+  shortlisted: "vorgemerkt",
+  tailored: "getailored",
+  applied: "beworben",
+  interview: "eingeladen",
+  offer: "angebot",
+  rejected: "abgelehnt",
+  withdrawn: "zurueckgezogen",
+  declined: "abgewaehlt",
+};
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status;
+}
+
+async function changeStatus(jid, newStatus, evt) {
+  if (evt) evt.stopPropagation();
+  if (!IS_HTTP) {
+    alert("Status aendern geht nur ueber 'bewerber serve' (HTTP).");
+    return;
+  }
+  try {
+    const resp = await fetch("/api/mark", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({job_id: jid, status: newStatus}),
+    });
+    const body = await resp.json();
+    if (!resp.ok) throw new Error(body.error || "unbekannter Fehler");
+    if (STATE.jobs[jid]) {
+      STATE.jobs[jid].status = newStatus;
+      STATE.jobs[jid].status_history = STATE.jobs[jid].status_history || [];
+      STATE.jobs[jid].status_history.push({status: newStatus, at: new Date().toISOString()});
+    }
+    applyFilters();  // Tabelle neu rendern -> Badge + Beworben-Datum aktualisieren
+  } catch (e) {
+    alert("Status-Aenderung fehlgeschlagen: " + e.message);
+  }
 }
 
 const NOTES_PREVIEW_CHARS = 40;

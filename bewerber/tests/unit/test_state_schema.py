@@ -62,6 +62,7 @@ def test_jobstatus_enum_has_expected_values():
     assert JobStatus.OFFER.value == "offer"
     assert JobStatus.REJECTED.value == "rejected"
     assert JobStatus.WITHDRAWN.value == "withdrawn"
+    assert JobStatus.DECLINED.value == "declined"
 
 
 def test_raw_job_minimal():
