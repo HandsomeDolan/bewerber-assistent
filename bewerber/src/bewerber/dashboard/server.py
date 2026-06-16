@@ -163,20 +163,19 @@ def _run_onboarding_extraction(job_id: str, upload_dir: Path, paths: Paths) -> N
             "sprachen": len(profile.sprachen),
         }
         with _onboarding_lock:
-            _onboarding_jobs[job_id] = {
+            # update statt = neue dict: upload_dir + files bleiben fuer Step 4 erhalten
+            _onboarding_jobs[job_id].update({
                 "status": "done",
-                "started_at": started,
                 "summary": summary,
                 "master_profile_path": str(paths.master_profile),
-            }
+            })
     except Exception as e:  # noqa: BLE001 - background, log + report-to-client
         log.exception("[onboarding] extraction %s failed", job_id)
         with _onboarding_lock:
-            _onboarding_jobs[job_id] = {
+            _onboarding_jobs[job_id].update({
                 "status": "failed",
-                "started_at": started,
                 "error": str(e)[:500],
-            }
+            })
 
 
 def _now_iso() -> str:
@@ -344,6 +343,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_logout()
             elif self.path == "/api/onboarding/extract":
                 self._handle_onboarding_extract()
+            elif self.path == "/api/onboarding/scan-folder":
+                self._handle_onboarding_scan_folder()
+            elif self.path == "/api/onboarding/save":
+                self._handle_onboarding_save()
             else:
                 self._send_json(404, {"error": "unknown endpoint"})
         except Exception as e:  # noqa: BLE001
@@ -688,13 +691,16 @@ class _Handler(BaseHTTPRequestHandler):
             target.write_bytes(content)
             saved.append(safe)
 
-        # Background-Thread anstossen
+        # Background-Thread anstossen. upload_dir wird im Job-State behalten,
+        # damit Step 4 (Anschreiben-Stil-Beispiele auswaehlen) die Originalfiles
+        # noch findet, wenn der User nach erfolgreicher Extraktion "Finish" drueckt.
         job_id = str(uuid.uuid4())
         with _onboarding_lock:
             _onboarding_jobs[job_id] = {
                 "status": "running",
                 "started_at": _now_iso(),
                 "files": saved,
+                "upload_dir": str(upload_dir),
             }
         threading.Thread(
             target=_run_onboarding_extraction,
@@ -703,6 +709,138 @@ class _Handler(BaseHTTPRequestHandler):
         ).start()
 
         self._send_json(200, {"ok": True, "job_id": job_id, "files": saved})
+
+    def _handle_onboarding_scan_folder(self) -> None:
+        """Pruefen-Button im Onboarding-Step-3: gibt Files im Ordner aus.
+
+        Body: {path: str} -> {ok, path, files: [{name, size_kb}]}.
+        """
+        if not self._session_user():
+            self._send_json(401, {"error": "Login erforderlich"})
+            return
+        body = self._read_json()
+        path_str = (body.get("path") or "").strip()
+        if not path_str:
+            self._send_json(400, {"error": "Pfad erforderlich"})
+            return
+        p = Path(path_str)
+        if not p.is_dir():
+            self._send_json(404, {"error": f"Verzeichnis nicht gefunden: {path_str}"})
+            return
+        files = []
+        for f in sorted(p.iterdir()):
+            if f.is_file() and not f.name.startswith("."):
+                files.append({"name": f.name, "size_kb": round(f.stat().st_size / 1024)})
+        self._send_json(200, {"ok": True, "path": str(p), "files": files})
+
+    def _handle_onboarding_save(self) -> None:
+        """Final-Commit fuer Steps 2-4 des Onboardings.
+
+        Body:
+          {
+            searches: {keywords: [...], boards: [...]},
+            defaults: {locations: [...], date_posted_max_days: int, exclude_keywords: [...]},
+            anlagen_folder: str|null,
+            anschreiben_examples: [filename, ...],
+            extraction_job_id: str|null
+          }
+        """
+        if not self._session_user():
+            self._send_json(401, {"error": "Login erforderlich"})
+            return
+        body = self._read_json()
+
+        # --- 1. searches.yaml ---
+        s = body.get("searches") or {}
+        d = body.get("defaults") or {}
+        keywords = [str(k).strip() for k in s.get("keywords", []) if str(k).strip()]
+        locations = [str(l).strip() for l in d.get("locations", []) if str(l).strip()]
+        if not keywords:
+            self._send_json(400, {"error": "Mindestens ein Suchbegriff erforderlich (Step 2)"})
+            return
+        if not locations:
+            self._send_json(400, {"error": "Mindestens eine Location erforderlich (Step 2)"})
+            return
+        boards = s.get("boards") or ["arbeitsagentur"]
+        exclude_global = [str(x).strip() for x in d.get("exclude_keywords", []) if str(x).strip()]
+        try:
+            max_days = int(d.get("date_posted_max_days", 14))
+        except (TypeError, ValueError):
+            max_days = 14
+
+        cfg_dict = {
+            "defaults": {
+                "locations": locations,
+                "date_posted_max_days": max_days,
+                "exclude_keywords": exclude_global,
+            },
+            "searches": [
+                {
+                    "name": "Standard",
+                    "keywords": keywords,
+                    "boards": boards,
+                    "exclude_keywords": [],
+                },
+            ],
+        }
+        try:
+            cfg = SearchesConfig.model_validate(cfg_dict)
+        except ValidationError as ve:
+            self._send_json(400, {"error": _format_validation_error(ve)})
+            return
+        _save_searches_atomic(self.paths.bewerber_dir / "searches.yaml", cfg)
+
+        # --- 2. anlagen.yaml (optional - nur wenn Folder angegeben + existiert) ---
+        anlagen_folder = (body.get("anlagen_folder") or "").strip()
+        anlagen_count = 0
+        if anlagen_folder:
+            folder = Path(anlagen_folder)
+            if folder.is_dir():
+                from bewerber.shared.anlagen import Anlage
+                entries = [
+                    Anlage(label=f.stem, files=[f])
+                    for f in sorted(folder.iterdir())
+                    if f.is_file() and f.suffix.lower() in {".pdf", ".docx", ".jpg", ".jpeg", ".png"}
+                ]
+                if entries:
+                    anlagen_cfg = AnlagenConfig(anlagen=entries)
+                    _save_anlagen_atomic(self.paths.anlagen_yaml, anlagen_cfg)
+                    anlagen_count = len(entries)
+
+        # --- 3. Anschreiben-Stil-Beispiele aus Step-1-Uploads ---
+        examples_saved = 0
+        extraction_job_id = body.get("extraction_job_id") or ""
+        example_names = body.get("anschreiben_examples") or []
+        if extraction_job_id and example_names:
+            with _onboarding_lock:
+                job_state = _onboarding_jobs.get(extraction_job_id) or {}
+            upload_dir_str = job_state.get("upload_dir")
+            if upload_dir_str:
+                upload_dir = Path(upload_dir_str)
+                if upload_dir.is_dir():
+                    selected_paths = [
+                        upload_dir / name
+                        for name in example_names
+                        if (upload_dir / name).is_file()
+                    ]
+                    if selected_paths:
+                        from bewerber.profile.extractor import save_anschreiben_examples
+                        saved = save_anschreiben_examples(
+                            selected_paths, self.paths.anschreiben_examples,
+                        )
+                        examples_saved = len(saved)
+
+        self._send_json(200, {
+            "ok": True,
+            "redirect": "/",
+            "summary": {
+                "searches_keywords": len(keywords),
+                "locations": len(locations),
+                "exclude_keywords": len(exclude_global),
+                "anlagen": anlagen_count,
+                "anschreiben_examples": examples_saved,
+            },
+        })
 
     def _handle_onboarding_status(self) -> None:
         """GET /api/onboarding/status?job_id=X -> aktueller Stand des Hintergrund-Jobs."""

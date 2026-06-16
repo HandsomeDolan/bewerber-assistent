@@ -17,13 +17,28 @@
   .stepper .step { padding: 6px 12px; background: #fff; border: 1px solid #d8d8d8; border-radius: 14px; flex: 1; text-align: center; }
   .stepper .step.current { background: #2266cc; color: #fff; border-color: #2266cc; font-weight: 600; }
   .stepper .step.done { background: #e8f7ec; color: #1a5b2b; border-color: #b8e0c2; }
-  .stepper .step.stub { opacity: 0.5; }
   section {
     background: #fff; border: 1px solid #e0e0e0; border-radius: 6px;
     padding: 22px 26px; margin-bottom: 18px;
   }
   section h2 { margin: 0 0 6px 0; font-size: 17px; }
   section .hint { color: #666; font-size: 13px; margin: 0 0 16px 0; line-height: 1.5; }
+  label.field { display: block; margin: 12px 0; font-size: 13px; color: #444; }
+  label.field > span { display: block; font-weight: 600; margin-bottom: 4px; color: #333; }
+  label.field > small { display: block; color: #888; font-size: 11px; margin-bottom: 4px; font-weight: normal; }
+  input[type="text"], input[type="number"], textarea {
+    width: 100%; box-sizing: border-box;
+    padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px;
+    font: inherit; font-size: 13px;
+  }
+  textarea { font-family: ui-monospace, "SF Mono", Menlo, monospace; resize: vertical; min-height: 60px; }
+  fieldset { border: 1px solid #eee; border-radius: 4px; padding: 8px 14px; margin: 10px 0; }
+  fieldset legend { padding: 0 6px; font-weight: 600; color: #333; font-size: 13px; }
+  .row { display: flex; gap: 12px; align-items: end; }
+  .row > .field { flex: 1; }
+  .checkbox-row { display: flex; gap: 16px; }
+  .checkbox-row label { font-size: 13px; cursor: pointer; }
+
   .dropzone {
     border: 2px dashed #c0c8d0; border-radius: 6px;
     padding: 36px 20px; text-align: center; color: #888;
@@ -38,6 +53,7 @@
     font-size: 13px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
   }
   .file-list .remove { color: #c33; cursor: pointer; background: none; border: 0; font-size: 14px; }
+
   button.primary {
     padding: 9px 18px; background: #2266cc; color: #fff;
     border: 1px solid #2266cc; border-radius: 4px;
@@ -46,9 +62,9 @@
   button.primary:hover:not(:disabled) { background: #1a55b3; }
   button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
   button.secondary {
-    padding: 9px 18px; background: #fff; color: #333;
+    padding: 7px 12px; background: #fff; color: #333;
     border: 1px solid #c0c8d0; border-radius: 4px;
-    font: inherit; cursor: pointer;
+    font: inherit; font-size: 13px; cursor: pointer;
   }
   .status-box { padding: 12px 14px; border-radius: 4px; margin-top: 14px; font-size: 13px; display: none; }
   .status-box.info { display: block; background: #e8f0fc; color: #1f4e8c; border: 1px solid #b8cee8; }
@@ -60,7 +76,21 @@
   }
   .summary-grid .k { color: #666; }
   .summary-grid .v { font-weight: 700; }
-  .stub-note { color: #888; font-style: italic; font-size: 13px; }
+  .style-checkboxes { display: flex; flex-direction: column; gap: 6px; }
+  .style-checkboxes label { font-size: 13px; cursor: pointer; padding: 4px 8px; border-radius: 3px; }
+  .style-checkboxes label:hover { background: #f4f6f8; }
+  .style-checkboxes .empty { color: #888; font-style: italic; font-size: 13px; }
+  .finish-bar {
+    background: #fff; border: 1px solid #e0e0e0; border-radius: 6px;
+    padding: 16px 22px; display: flex; justify-content: space-between; align-items: center;
+    margin-top: 18px;
+  }
+  .finish-status { font-size: 13px; color: #666; }
+  .scan-result {
+    padding: 8px 12px; background: #f4f6f8; border: 1px solid #d8e0e8; border-radius: 4px;
+    margin-top: 8px; font-size: 12px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    max-height: 160px; overflow-y: auto;
+  }
 </style>
 </head>
 <body>
@@ -72,20 +102,19 @@
 <main>
   <div class="stepper">
     <div class="step current" id="step-1">1. Profil aus Dokumenten</div>
-    <div class="step stub">2. Suchen + Locations</div>
-    <div class="step stub">3. Anlagen-Ordner</div>
-    <div class="step stub">4. Anschreiben-Stil</div>
+    <div class="step" id="step-2">2. Suchen + Locations</div>
+    <div class="step" id="step-3">3. Anlagen-Ordner</div>
+    <div class="step" id="step-4">4. Anschreiben-Stil</div>
   </div>
 
+  <!-- ====================== STEP 1 ====================== -->
   <section>
     <h2>Step 1: Profil aus Dokumenten erstellen</h2>
     <p class="hint">
       Lade einen vorhandenen Lebenslauf + 1-3 Anschreiben (PDF oder DOCX) hoch.
-      Die LLM extrahiert daraus dein Master-Profil (Werdegang, Skills, Sprachen, Ausbildung).
-      Dauert ~30-60 s. Du kannst waehrenddessen schon Schritt 2-4 ausfuellen
-      (kommt in Phase 3).
+      Die LLM extrahiert daraus dein Master-Profil. Dauert ~30-60 s.
+      Du kannst waehrenddessen schon Step 2-4 ausfuellen.
     </p>
-
     <label class="dropzone" id="dropzone">
       <input type="file" id="file-input" accept=".pdf,.docx" multiple>
       <div id="dropzone-text">
@@ -93,43 +122,113 @@
         <small>PDF oder DOCX, mehrere Dateien moeglich</small>
       </div>
     </label>
-
     <ul class="file-list" id="file-list"></ul>
-
     <div style="margin-top: 16px;">
       <button id="extract-btn" class="primary" disabled onclick="startExtraction()">
         ▶ Profil extrahieren
       </button>
     </div>
-
     <div id="status-box" class="status-box"></div>
   </section>
 
-  <section style="opacity: 0.6;">
-    <h2>Step 2 - 4 (kommen in Phase 3)</h2>
-    <p class="stub-note">Suchen + Locations, Anlagen-Ordner und Anschreiben-Stil werden hier eingefuegt.</p>
+  <!-- ====================== STEP 2 ====================== -->
+  <section>
+    <h2>Step 2: Suchen + Locations</h2>
+    <p class="hint">
+      Diese Werte landen in <code>searches.yaml</code>. Du kannst sie spaeter
+      jederzeit ueber den ⚙ Suchen-Editor im Dashboard anpassen.
+    </p>
+    <label class="field">
+      <span>Suchbegriffe</span>
+      <small>Eine pro Zeile. Mind. 1 Pflicht. Beispiel: "KI Manager", "Lead Projektmanager".</small>
+      <textarea id="onb-keywords" rows="4" oninput="updateFinishBtn()" placeholder="KI Manager&#10;Lead Projektmanager&#10;Senior Consultant Digitalisierung"></textarea>
+    </label>
+    <label class="field">
+      <span>Locations</span>
+      <small>Eine pro Zeile. Mind. 1 Pflicht.</small>
+      <textarea id="onb-locations" rows="3" oninput="updateFinishBtn()" placeholder="Leipzig&#10;Berlin&#10;Remote"></textarea>
+    </label>
+    <label class="field">
+      <span>Ausschluss-Keywords (optional)</span>
+      <small>Eine pro Zeile. Wortgrenze, case-insensitive. Filtert vor Scoring.</small>
+      <textarea id="onb-exclude" rows="2" placeholder="SPS&#10;PLS"></textarea>
+    </label>
+    <div class="row">
+      <label class="field" style="flex:0 0 220px;">
+        <span>Max. Tage seit Posting</span>
+        <small>1-90</small>
+        <input type="number" id="onb-max-days" min="1" max="90" value="14">
+      </label>
+      <fieldset class="field" style="flex:1;">
+        <legend>Boards</legend>
+        <div class="checkbox-row">
+          <label><input type="checkbox" class="onb-board" value="arbeitsagentur" checked> Arbeitsagentur</label>
+          <label><input type="checkbox" class="onb-board" value="linkedin"> LinkedIn</label>
+          <label><input type="checkbox" class="onb-board" value="indeed"> Indeed</label>
+        </div>
+      </fieldset>
+    </div>
   </section>
 
-  <div style="text-align: right;">
-    <button id="finish-btn" class="primary" disabled onclick="finishToDashboard()">
-      Zum Dashboard →
+  <!-- ====================== STEP 3 ====================== -->
+  <section>
+    <h2>Step 3: Anlagen-Ordner (optional)</h2>
+    <p class="hint">
+      Lokaler Ordner mit Zeugnissen, Urkunden etc. Diese Dateien werden bei
+      jedem Tailor-Lauf automatisch in den Bewerbungsordner kopiert.
+      Pfade muessen absolut sein. Spaeter ueber 🗂 Anlagen verwalten editierbar.
+    </p>
+    <label class="field">
+      <span>Pfad</span>
+      <input type="text" id="onb-anlagen-path" placeholder="/Users/.../Bewerbungsunterlagen/_anlagen">
+    </label>
+    <button class="secondary" onclick="scanAnlagenFolder()">🔍 Pruefen</button>
+    <div id="onb-anlagen-result" class="scan-result" style="display:none;"></div>
+  </section>
+
+  <!-- ====================== STEP 4 ====================== -->
+  <section>
+    <h2>Step 4: Anschreiben-Stil-Beispiele (optional)</h2>
+    <p class="hint">
+      Aus den in Step 1 hochgeladenen Dateien Anschreiben als Few-Shot-Beispiele
+      auswaehlen. Die LLM nutzt sie, um deinen Schreibstil zu imitieren.
+    </p>
+    <div id="onb-style-checkboxes" class="style-checkboxes">
+      <span class="empty">Erst in Step 1 Dateien hochladen, dann erscheinen hier die Checkboxen.</span>
+    </div>
+  </section>
+
+  <!-- ====================== FINISH ====================== -->
+  <div class="finish-bar">
+    <div class="finish-status" id="finish-status">
+      Bitte zuerst Step 1 (Extraktion) + Step 2 (Suchen) ausfuellen.
+    </div>
+    <button id="finish-btn" class="primary" disabled onclick="finishOnboarding()">
+      Setup abschliessen → Dashboard
     </button>
   </div>
+  <div id="finish-status-box" class="status-box" style="margin-top: 14px;"></div>
 </main>
 
 <script>
 const SELECTED_FILES = [];
+let extractionJobId = null;
+let extractionDone = false;
+
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("file-input");
 const fileList = document.getElementById("file-list");
 const extractBtn = document.getElementById("extract-btn");
 const finishBtn = document.getElementById("finish-btn");
+const finishStatus = document.getElementById("finish-status");
 const statusBox = document.getElementById("status-box");
-let currentJobId = null;
-let pollTimer = null;
+const finishStatusBox = document.getElementById("finish-status-box");
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function linesToList(s) {
+  return (s || "").split("\n").map(l => l.trim()).filter(Boolean);
 }
 
 function renderFileList() {
@@ -142,28 +241,19 @@ function renderFileList() {
   });
   extractBtn.disabled = SELECTED_FILES.length === 0;
 }
-
-function removeFile(idx) {
-  SELECTED_FILES.splice(idx, 1);
-  renderFileList();
-}
-
+function removeFile(idx) { SELECTED_FILES.splice(idx, 1); renderFileList(); }
 function addFiles(files) {
   for (const f of files) {
     if (!/\.(pdf|docx)$/i.test(f.name)) continue;
-    if (!SELECTED_FILES.some(s => s.name === f.name && s.size === f.size)) {
-      SELECTED_FILES.push(f);
-    }
+    if (!SELECTED_FILES.some(s => s.name === f.name && s.size === f.size)) SELECTED_FILES.push(f);
   }
   renderFileList();
 }
-
 fileInput.addEventListener("change", e => addFiles(e.target.files));
 dropzone.addEventListener("dragover", e => { e.preventDefault(); dropzone.classList.add("drag"); });
 dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag"));
 dropzone.addEventListener("drop", e => {
-  e.preventDefault();
-  dropzone.classList.remove("drag");
+  e.preventDefault(); dropzone.classList.remove("drag");
   addFiles(e.dataTransfer.files);
 });
 
@@ -184,15 +274,14 @@ async function startExtraction() {
   if (SELECTED_FILES.length === 0) return;
   extractBtn.disabled = true;
   fileInput.disabled = true;
-
   const fd = new FormData();
   for (const f of SELECTED_FILES) fd.append("files", f, f.name);
-
   try {
     const resp = await fetch("/api/onboarding/extract", {method: "POST", body: fd});
     const body = await resp.json();
     if (!resp.ok) throw new Error(body.error || "unbekannter Fehler");
-    currentJobId = body.job_id;
+    extractionJobId = body.job_id;
+    populateStyleCheckboxes(body.files);
     setStatus("info", `<span id="phase-text">Extraktion gestartet ...</span>`);
     pollExtractionStatus();
   } catch (e) {
@@ -202,8 +291,23 @@ async function startExtraction() {
   }
 }
 
+function populateStyleCheckboxes(filenames) {
+  // Step 4: alle hochgeladenen Files als Optionen anbieten. Defaults vorab-checked,
+  // wenn der Filename "anschreiben" / "cover" enthaelt.
+  const container = document.getElementById("onb-style-checkboxes");
+  if (!filenames || filenames.length === 0) return;
+  container.innerHTML = "";
+  filenames.forEach(name => {
+    const lower = name.toLowerCase();
+    const looksLikeAnschreiben = /(anschreiben|coverletter|cover[\s_-]?letter|motivation)/i.test(lower);
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="checkbox" class="onb-style-cb" value="${escapeHtml(name)}" ${looksLikeAnschreiben ? "checked" : ""}> ${escapeHtml(name)}`;
+    container.appendChild(label);
+  });
+}
+
 async function pollExtractionStatus() {
-  if (!currentJobId) return;
+  if (!extractionJobId) return;
   let phaseIdx = 0;
   const phaseTimer = setInterval(() => {
     const el = document.getElementById("phase-text");
@@ -212,17 +316,17 @@ async function pollExtractionStatus() {
       el.textContent = PHASES[phaseIdx];
     }
   }, 7000);
-
   const tick = async () => {
     try {
-      const resp = await fetch("/api/onboarding/status?job_id=" + encodeURIComponent(currentJobId));
+      const resp = await fetch("/api/onboarding/status?job_id=" + encodeURIComponent(extractionJobId));
       const data = await resp.json();
       if (data.status === "running") {
-        pollTimer = setTimeout(tick, 1500);
+        setTimeout(tick, 1500);
         return;
       }
       clearInterval(phaseTimer);
       if (data.status === "done") {
+        extractionDone = true;
         const s = data.summary || {};
         setStatus("ok",
           `<b>✓ Profil erstellt:</b>
@@ -231,18 +335,15 @@ async function pollExtractionStatus() {
             <div class="k">Berufsstellen:</div> <div class="v">${s.stellen || 0}</div>
             <div class="k">Ausbildungen:</div>  <div class="v">${s.ausbildung || 0}</div>
             <div class="k">Sprachen:</div>      <div class="v">${s.sprachen || 0}</div>
-          </div>
-          <div style="font-size:12px; color:#666;">Gespeichert: <code>${escapeHtml(data.master_profile_path || "")}</code></div>`,
+          </div>`,
         );
         document.getElementById("step-1").classList.remove("current");
         document.getElementById("step-1").classList.add("done");
-        finishBtn.disabled = false;
+        updateFinishBtn();
       } else if (data.status === "failed") {
         setStatus("err", "Extraktion fehlgeschlagen:\n" + (data.error || "unbekannt"));
         extractBtn.disabled = false;
         fileInput.disabled = false;
-      } else {
-        setStatus("err", "Unerwarteter Status: " + JSON.stringify(data));
       }
     } catch (e) {
       clearInterval(phaseTimer);
@@ -252,8 +353,87 @@ async function pollExtractionStatus() {
   tick();
 }
 
-function finishToDashboard() {
-  window.location.href = "/";
+async function scanAnlagenFolder() {
+  const path = document.getElementById("onb-anlagen-path").value.trim();
+  const resultEl = document.getElementById("onb-anlagen-result");
+  if (!path) { resultEl.style.display = "none"; return; }
+  resultEl.style.display = "block";
+  resultEl.textContent = "Pruefe ...";
+  try {
+    const resp = await fetch("/api/onboarding/scan-folder", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({path}),
+    });
+    const body = await resp.json();
+    if (!resp.ok) {
+      resultEl.textContent = "✗ " + (body.error || "Fehler");
+      return;
+    }
+    if (body.files.length === 0) {
+      resultEl.textContent = "Verzeichnis existiert, aber keine Dateien drin.";
+      return;
+    }
+    resultEl.innerHTML = `✓ ${body.files.length} Dateien gefunden:\n` +
+      body.files.map(f => `  ${escapeHtml(f.name)} (${f.size_kb} KB)`).join("\n");
+  } catch (e) {
+    resultEl.textContent = "Netzfehler: " + e.message;
+  }
+}
+
+function updateFinishBtn() {
+  const keywords = linesToList(document.getElementById("onb-keywords").value);
+  const locations = linesToList(document.getElementById("onb-locations").value);
+  const ready = extractionDone && keywords.length > 0 && locations.length > 0;
+  finishBtn.disabled = !ready;
+  if (!extractionDone) {
+    finishStatus.textContent = "Warte auf Step 1 (Profil-Extraktion) ...";
+  } else if (keywords.length === 0) {
+    finishStatus.textContent = "Step 2: mindestens ein Suchbegriff erforderlich.";
+  } else if (locations.length === 0) {
+    finishStatus.textContent = "Step 2: mindestens eine Location erforderlich.";
+  } else {
+    finishStatus.textContent = "Alles bereit. Klick zum Speichern.";
+  }
+  // Step-2-Indikator updaten
+  const step2 = document.getElementById("step-2");
+  step2.classList.toggle("done", keywords.length > 0 && locations.length > 0);
+}
+
+async function finishOnboarding() {
+  finishBtn.disabled = true;
+  finishStatusBox.className = "status-box info";
+  finishStatusBox.style.display = "block";
+  finishStatusBox.textContent = "Speichere ...";
+  try {
+    const payload = {
+      searches: {
+        keywords: linesToList(document.getElementById("onb-keywords").value),
+        boards: Array.from(document.querySelectorAll(".onb-board:checked")).map(cb => cb.value),
+      },
+      defaults: {
+        locations: linesToList(document.getElementById("onb-locations").value),
+        date_posted_max_days: parseInt(document.getElementById("onb-max-days").value, 10) || 14,
+        exclude_keywords: linesToList(document.getElementById("onb-exclude").value),
+      },
+      anlagen_folder: document.getElementById("onb-anlagen-path").value.trim() || null,
+      anschreiben_examples: Array.from(document.querySelectorAll(".onb-style-cb:checked")).map(cb => cb.value),
+      extraction_job_id: extractionJobId,
+    };
+    const resp = await fetch("/api/onboarding/save", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Fehler beim Speichern");
+    finishStatusBox.className = "status-box ok";
+    const s = data.summary || {};
+    finishStatusBox.innerHTML = `✓ Gespeichert: ${s.searches_keywords} Suchbegriffe, ${s.locations} Locations, ${s.anlagen || 0} Anlagen, ${s.anschreiben_examples || 0} Stil-Beispiele. Leite zum Dashboard weiter ...`;
+    setTimeout(() => { window.location.href = data.redirect || "/"; }, 1200);
+  } catch (e) {
+    finishStatusBox.className = "status-box err";
+    finishStatusBox.textContent = "✗ " + e.message;
+    finishBtn.disabled = false;
+  }
 }
 
 async function logout(evt) {
@@ -264,6 +444,8 @@ async function logout(evt) {
     window.location.href = body.redirect || "/login";
   } catch (e) { alert("Logout-Fehler: " + e.message); }
 }
+
+updateFinishBtn();
 </script>
 </body>
 </html>

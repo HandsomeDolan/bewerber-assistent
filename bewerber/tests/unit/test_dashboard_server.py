@@ -1220,6 +1220,152 @@ def test_run_onboarding_extraction_records_failure(tmp_path, mocker):
     assert "LLM quota" in state["error"]
 
 
+# ---------------------------------------------------------------------------
+# Phase 3: Onboarding Steps 2-4 (Scan-Folder, Save)
+# ---------------------------------------------------------------------------
+
+def test_onboarding_scan_folder_lists_files(running_server, tmp_path):
+    folder = tmp_path / "anlagen-src"
+    folder.mkdir()
+    (folder / "Zeugnis.pdf").write_bytes(b"%PDF dummy")
+    (folder / "Urkunde.pdf").write_bytes(b"%PDF dummy 2")
+    (folder / ".DS_Store").write_bytes(b"x")  # versteckte Files werden gefiltert
+    code, body = _post_json(running_server, "/api/onboarding/scan-folder", {"path": str(folder)})
+    assert code == 200
+    names = [f["name"] for f in body["files"]]
+    assert names == ["Urkunde.pdf", "Zeugnis.pdf"]   # sorted, ohne .DS_Store
+
+
+def test_onboarding_scan_folder_404_when_path_missing(running_server, tmp_path):
+    code, body = _post_json(running_server, "/api/onboarding/scan-folder", {
+        "path": str(tmp_path / "does-not-exist"),
+    })
+    assert code == 404
+
+
+def test_onboarding_scan_folder_400_when_path_empty(running_server):
+    code, body = _post_json(running_server, "/api/onboarding/scan-folder", {"path": ""})
+    assert code == 400
+
+
+def test_onboarding_save_writes_searches_yaml(running_server, tmp_path):
+    code, body = _post_json(running_server, "/api/onboarding/save", {
+        "searches": {"keywords": ["KI Manager", "Lead PM"], "boards": ["arbeitsagentur", "linkedin"]},
+        "defaults": {"locations": ["Leipzig", "Remote"], "date_posted_max_days": 21, "exclude_keywords": ["SPS"]},
+        "anlagen_folder": None,
+        "anschreiben_examples": [],
+        "extraction_job_id": None,
+    })
+    assert code == 200, body
+    assert body["ok"] is True
+    assert body["redirect"] == "/"
+
+    # searches.yaml geschrieben
+    import yaml
+    written = yaml.safe_load((tmp_path / "bewerber" / "searches.yaml").read_text())
+    assert written["defaults"]["locations"] == ["Leipzig", "Remote"]
+    assert written["defaults"]["date_posted_max_days"] == 21
+    assert written["defaults"]["exclude_keywords"] == ["SPS"]
+    assert len(written["searches"]) == 1
+    assert written["searches"][0]["name"] == "Standard"
+    assert written["searches"][0]["keywords"] == ["KI Manager", "Lead PM"]
+    assert written["searches"][0]["boards"] == ["arbeitsagentur", "linkedin"]
+
+
+def test_onboarding_save_writes_anlagen_yaml_from_folder(running_server, tmp_path):
+    """anlagen_folder mit PDFs -> anlagen.yaml mit einer Anlage pro File."""
+    folder = tmp_path / "anlagen-src"
+    folder.mkdir()
+    (folder / "Arbeitszeugnis.pdf").write_bytes(b"%PDF a")
+    (folder / "REFA_Urkunde.pdf").write_bytes(b"%PDF b")
+    (folder / "image.jpg").write_bytes(b"\xff\xd8\xff img")
+
+    code, body = _post_json(running_server, "/api/onboarding/save", {
+        "searches": {"keywords": ["x"], "boards": ["arbeitsagentur"]},
+        "defaults": {"locations": ["Leipzig"], "date_posted_max_days": 14, "exclude_keywords": []},
+        "anlagen_folder": str(folder),
+        "anschreiben_examples": [],
+        "extraction_job_id": None,
+    })
+    assert code == 200, body
+    assert body["summary"]["anlagen"] == 3   # 2 PDFs + 1 JPG
+
+    import yaml
+    written = yaml.safe_load((tmp_path / "bewerber" / "anlagen.yaml").read_text())
+    labels = [a["label"] for a in written["anlagen"]]
+    assert "Arbeitszeugnis" in labels
+    assert "REFA_Urkunde" in labels
+
+
+def test_onboarding_save_writes_anschreiben_examples_from_upload_dir(running_server, tmp_path):
+    """Anschreiben-Stil-Beispiele werden aus dem Upload-Dir kopiert (text-Extraktion)."""
+    from bewerber.dashboard import server as srv
+    # Upload-Dir mit zwei "Anschreiben"-Dateien anlegen
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+    # save_anschreiben_examples liest Text aus den Files. .txt geht durch ohne PDF-Parser.
+    # (Wir koennen aber save_anschreiben_examples mocken)
+    (upload_dir / "anschreiben1.pdf").write_bytes(b"%PDF dummy")
+    (upload_dir / "anschreiben2.pdf").write_bytes(b"%PDF dummy 2")
+    (upload_dir / "lebenslauf.pdf").write_bytes(b"%PDF cv")
+
+    # Fake Job-State so anlegen, als waere Step 1 fertig
+    job_id = "saved-job"
+    with srv._onboarding_lock:
+        srv._onboarding_jobs[job_id] = {
+            "status": "done",
+            "upload_dir": str(upload_dir),
+            "files": ["anschreiben1.pdf", "anschreiben2.pdf", "lebenslauf.pdf"],
+        }
+
+    # save_anschreiben_examples patchen (echte Implementierung liest PDF-Text)
+    from unittest.mock import patch
+    fake_paths = [tmp_path / "examples" / "01_x.txt", tmp_path / "examples" / "02_y.txt"]
+    with patch(
+        "bewerber.profile.extractor.save_anschreiben_examples",
+        return_value=fake_paths,
+    ) as mock_save:
+        code, body = _post_json(running_server, "/api/onboarding/save", {
+            "searches": {"keywords": ["x"], "boards": ["arbeitsagentur"]},
+            "defaults": {"locations": ["Leipzig"], "date_posted_max_days": 14, "exclude_keywords": []},
+            "anlagen_folder": None,
+            "anschreiben_examples": ["anschreiben1.pdf", "anschreiben2.pdf"],
+            "extraction_job_id": job_id,
+        })
+    assert code == 200
+    assert body["summary"]["anschreiben_examples"] == 2
+    # save_anschreiben_examples wurde mit den 2 ausgewaehlten Pfaden gerufen
+    args, kwargs = mock_save.call_args
+    selected_paths = args[0]
+    assert len(selected_paths) == 2
+    assert all("anschreiben" in p.name for p in selected_paths)
+
+
+def test_onboarding_save_rejects_empty_keywords(running_server):
+    code, body = _post_json(running_server, "/api/onboarding/save", {
+        "searches": {"keywords": [], "boards": ["arbeitsagentur"]},
+        "defaults": {"locations": ["Leipzig"], "date_posted_max_days": 14, "exclude_keywords": []},
+    })
+    assert code == 400
+    assert "Suchbegriff" in body["error"]
+
+
+def test_onboarding_save_rejects_empty_locations(running_server):
+    code, body = _post_json(running_server, "/api/onboarding/save", {
+        "searches": {"keywords": ["KI"], "boards": ["arbeitsagentur"]},
+        "defaults": {"locations": [], "date_posted_max_days": 14, "exclude_keywords": []},
+    })
+    assert code == 400
+    assert "Location" in body["error"]
+
+
+def test_onboarding_save_requires_login(running_server):
+    code, body = _post_json(running_server, "/api/onboarding/save", {
+        "searches": {"keywords": ["x"]}, "defaults": {"locations": ["x"]},
+    }, with_session=False)
+    assert code == 401
+
+
 def test_invalid_session_cookie_treated_as_missing(running_server):
     """Wenn der Cookie da ist aber leer/whitespace, soll der Server so handeln als waere keiner da."""
     import http.client
