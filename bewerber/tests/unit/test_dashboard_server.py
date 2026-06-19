@@ -889,6 +889,174 @@ def test_tailor_orchestrator_failure_returns_502(running_server, tmp_path, mocke
 
 
 # ---------------------------------------------------------------------------
+# Briefing-Endpoint
+# ---------------------------------------------------------------------------
+
+def test_briefing_rejects_unknown_job(running_server):
+    code, body = _post_json(running_server, "/api/briefing", {"job_id": "ghost-9999"})
+    assert code == 404
+
+
+def test_briefing_rejects_job_without_tailored_dir(running_server, tmp_path):
+    from bewerber.shared.state_schema import Scoring as _Sc
+    state = BewerberState(jobs={
+        "x-1": TrackedJob(raw=RawJob(
+            board="x", external_id="1", url="https://x", title="t", company="c",
+            location="l", description="d",
+        ), scoring=_Sc(fit_score=7, begruendung="x", matched_skills=[],
+                       missing_skills=[], red_flags=[], verbessern_in_anschreiben=[])),
+    })
+    save_state(Paths().state_json, state)
+    code, body = _post_json(running_server, "/api/briefing", {"job_id": "x-1"})
+    assert code == 400
+    assert "tailored_dir" in body["error"]
+
+
+def test_briefing_happy_path_writes_pdf_to_briefing_subdir(running_server, tmp_path, mocker):
+    """Happy path: LLM gemockt, PDF wird im <tailored_dir>/briefing/ abgelegt."""
+    from bewerber.shared.state_schema import Scoring as _Sc
+    from bewerber.briefing import InterviewBriefingContent, ProfileFramingEntry, QAEntry, AskedQuestionEntry
+
+    # Tailored-Dir vorbereiten
+    tailored = tmp_path / "bewerbungs-out"
+    tailored.mkdir()
+
+    state = BewerberState(jobs={
+        "x-1": TrackedJob(
+            raw=RawJob(
+                board="x", external_id="1", url="https://x",
+                title="AI Consultant", company="Acme GmbH",
+                location="Leipzig", description="Wir suchen einen AI-Consultant ...",
+            ),
+            scoring=_Sc(fit_score=7, begruendung="ok",
+                        matched_skills=["Python", "n8n"], missing_skills=["ITIL"],
+                        red_flags=["Befristet"], verbessern_in_anschreiben=[]),
+            tailored_dir=str(tailored),
+        ),
+    })
+    save_state(Paths().state_json, state)
+
+    fake_briefing = InterviewBriefingContent(
+        company_overview="Acme ist ein KI-Consultancy.",
+        company_facts=["Sitz Leipzig", "50 MA"],
+        methodik_und_tonalitaet=["Pragmatisch", "Wertorientiert"],
+        role_summary="Du beraetst Kunden bei KI-Use-Cases.",
+        role_does=["Workshops moderieren"],
+        role_doesnt=["Selbst entwickeln"],
+        profile_framing=[
+            ProfileFramingEntry(anforderung="n8n-Erfahrung", match_aus_profil="n8n bei IC Music seit 2026"),
+        ],
+        expected_questions=[
+            QAEntry(frage="Warum Acme?", antwort="Drei Gruende. Erstens passt der Ansatz..."),
+        ],
+        questions_to_ask=[
+            AskedQuestionEntry(frage="Wie sind die Teams aufgestellt?", warum="Senior-Lead verstehen"),
+        ],
+        salary_advice="Range 65-85k brutto.",
+        closing_statement="Spannende Position, ich freue mich auf Ihre Rueckmeldung.",
+        red_flags=["Befristet"],
+        sprechstil_tips=["Konkrete Zahlen nennen"],
+    )
+    mocker.patch("bewerber.briefing.generate_briefing", return_value=fake_briefing)
+    mocker.patch("bewerber.shared.llm.LLMClient.for_scoring", return_value=mocker.Mock())
+
+    code, body = _post_json(running_server, "/api/briefing", {"job_id": "x-1"})
+    assert code == 200, body
+    assert body["ok"] is True
+    pdf_path = Path(body["pdf_path"])
+    assert pdf_path.is_file()
+    assert pdf_path.parent.name == "briefing"
+    assert pdf_path.parent.parent == tailored
+    assert pdf_path.read_bytes().startswith(b"%PDF")
+
+
+def test_briefing_llm_failure_returns_502(running_server, tmp_path, mocker):
+    from bewerber.shared.state_schema import Scoring as _Sc
+    tailored = tmp_path / "out"; tailored.mkdir()
+    state = BewerberState(jobs={
+        "x-1": TrackedJob(
+            raw=RawJob(board="x", external_id="1", url="", title="t",
+                       company="c", location="l", description="d"),
+            scoring=_Sc(fit_score=5, begruendung="x", matched_skills=[],
+                        missing_skills=[], red_flags=[], verbessern_in_anschreiben=[]),
+            tailored_dir=str(tailored),
+        ),
+    })
+    save_state(Paths().state_json, state)
+    mocker.patch("bewerber.briefing.generate_briefing", side_effect=RuntimeError("LLM down"))
+    mocker.patch("bewerber.shared.llm.LLMClient.for_scoring", return_value=mocker.Mock())
+
+    code, body = _post_json(running_server, "/api/briefing", {"job_id": "x-1"})
+    assert code == 502
+    assert "LLM down" in body["error"]
+
+
+# ---------------------------------------------------------------------------
+# Discover-Run-Endpoint
+# ---------------------------------------------------------------------------
+
+def test_discover_run_starts_background_thread(running_server, tmp_path, mocker):
+    # searches.yaml anlegen
+    import yaml
+    (tmp_path / "bewerber" / "searches.yaml").write_text(yaml.safe_dump({
+        "defaults": {"locations": ["L"], "date_posted_max_days": 14, "exclude_keywords": []},
+        "searches": [{"name": "A", "keywords": ["KI"], "boards": ["arbeitsagentur"]}],
+    }))
+    # Discover-Hintergrundlauf komplett mocken
+    mocker.patch("bewerber.dashboard.server._run_discover_background", autospec=True)
+
+    code, body = _post_json(running_server, "/api/discover/run", {})
+    assert code == 200
+    assert body["ok"] is True
+    assert "job_id" in body
+
+
+def test_discover_run_rejects_concurrent_runs(running_server, tmp_path, mocker):
+    """Zwei Aufrufe in Folge -> zweiter bekommt 409."""
+    from bewerber.dashboard import server as srv
+    # Manuell einen "laufenden" Job ins State injizieren
+    with srv._discover_lock:
+        srv._discover_state["current_id"] = "already-running"
+        srv._discover_state["jobs"]["already-running"] = {"status": "running"}
+
+    code, body = _post_json(running_server, "/api/discover/run", {})
+    assert code == 409
+    assert body["current_job_id"] == "already-running"
+
+    # Aufraeumen
+    with srv._discover_lock:
+        srv._discover_state["current_id"] = None
+
+
+def test_discover_status_returns_idle_when_nothing_running(running_server):
+    from bewerber.dashboard import server as srv
+    with srv._discover_lock:
+        srv._discover_state["current_id"] = None
+        srv._discover_state["jobs"].clear()
+    code, body = _get(running_server, "/api/discover/status")
+    assert code == 200
+    assert json.loads(body)["status"] == "idle"
+
+
+def test_discover_status_returns_done_with_summary(running_server):
+    from bewerber.dashboard import server as srv
+    with srv._discover_lock:
+        srv._discover_state["jobs"]["done-job"] = {
+            "status": "done",
+            "started_at": "2026-06-19T10:00",
+            "finished_at": "2026-06-19T10:05",
+            "new_jobs": 3,
+            "total_jobs": 12,
+            "scrape_errors": {},
+        }
+    code, body = _get(running_server, "/api/discover/status?job_id=done-job")
+    assert code == 200
+    data = json.loads(body)
+    assert data["status"] == "done"
+    assert data["new_jobs"] == 3
+
+
+# ---------------------------------------------------------------------------
 # Phase 1: Login, Onboarding-Stub, Session-Cookie, Routing
 # ---------------------------------------------------------------------------
 

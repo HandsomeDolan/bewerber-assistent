@@ -188,6 +188,8 @@ tr.expanded + tr.detail { display: table-row; }
 <div class="meta">
   Letzter Discovery-Run: <b>{{ state.last_discovery_run or "noch nie" }}</b> ·
   {{ state.jobs | length }} Jobs insgesamt
+  <button id="discover-run-btn" onclick="startDiscoverRun()" style="margin-left:14px; padding:4px 12px; background:#fff; border:1px solid #2266cc; color:#2266cc; border-radius:3px; cursor:pointer; font-size:12px; font-weight:600;">▶ Discover jetzt starten</button>
+  <span id="discover-run-status" style="margin-left:10px; font-size:12px; color:#1f4e8c;"></span>
 </div>
 
 <div class="add-posting">
@@ -452,6 +454,13 @@ function detailHtml(r) {
   const folderBtn = r.tailored_dir
     ? `<button class="folder-btn" onclick="openFolder('${escapeAttr(r.tailored_dir)}', event)">📂 Bewerbungsordner</button>`
     : "";
+  // Briefing-Button nur fuer Jobs mit Status 'applied' oder weiter (interview/offer)
+  // und nur wenn ein Tailored-Dir existiert (Briefing wird dort abgelegt).
+  const showBriefing = r.tailored_dir && ["applied", "interview", "offer"].includes(r.status);
+  const briefingBtn = showBriefing
+    ? `<button class="folder-btn" onclick="createBriefing('${r.jid}', event)" id="briefing-btn-${r.jid}">📋 Briefing erstellen</button>
+       <span class="briefing-status" id="briefing-status-${r.jid}" style="margin-left:8px; font-size:12px;"></span>`
+    : "";
   const linkPost = r.raw.url ? `<a href="${escapeAttr(r.raw.url)}" target="_blank">Original-Posting</a>` : "";
   const linkApp = r.application_link ? `<a href="${escapeAttr(r.application_link)}" target="_blank">Eingereichte Bewerbung</a>` : "";
   const isApplied = r.status === "applied" || r.status === "interview" || r.status === "offer";
@@ -494,7 +503,7 @@ function detailHtml(r) {
     <select onchange="changeStatus('${r.jid}', this.value, event)">${statusOptions}</select>
   </label>`;
   return `
-    <div class="links">${linkPost} ${linkCv} ${linkAns} ${linkApp} ${folderBtn}</div>
+    <div class="links">${linkPost} ${linkCv} ${linkAns} ${linkApp} ${folderBtn} ${briefingBtn}</div>
     <div style="margin-top:6px;">${appliedToggle} ${statusSelect}</div>
     <div style="margin-top:6px;">${tailorBtn}</div>
     <h4>Scoring</h4>
@@ -545,6 +554,111 @@ function buildDescriptionHtml(desc, jid) {
 function arbeitsmodellBadge(value) {
   if (!value) return "";
   return ` <span class="arbeitsmodell-badge arbeitsmodell-${value}">${value}</span>`;
+}
+
+// ---------------------------------------------------------------------------
+// Briefing-Erstellung (Status applied/interview/offer)
+// ---------------------------------------------------------------------------
+
+async function createBriefing(jid, evt) {
+  if (evt) evt.stopPropagation();
+  if (!IS_HTTP) {
+    alert("Briefing erstellen geht nur ueber 'bewerber serve' (HTTP).");
+    return;
+  }
+  const btn = document.getElementById("briefing-btn-" + jid);
+  const statusEl = document.getElementById("briefing-status-" + jid);
+  btn.disabled = true;
+  btn.textContent = "⏳ generiere ...";
+  statusEl.style.color = "#444";
+  statusEl.textContent = "LLM erstellt das Briefing (~30-45 s) ...";
+  try {
+    const resp = await fetch("/api/briefing", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({job_id: jid}),
+    });
+    const body = await resp.json();
+    if (!resp.ok) throw new Error(body.error || "unbekannter Fehler");
+    statusEl.style.color = "#1a5b2b";
+    statusEl.innerHTML = `✓ <a href="file://${escapeAttr(body.pdf_path)}" target="_blank">PDF oeffnen</a> · <a href="#" onclick="openFolder('${escapeAttr(body.briefing_dir)}', event); return false;">📂 briefing/-Ordner</a>`;
+    btn.disabled = false;
+    btn.textContent = "🔁 Neues Briefing";
+  } catch (e) {
+    statusEl.style.color = "#c33";
+    statusEl.textContent = "✗ " + e.message;
+    btn.disabled = false;
+    btn.textContent = "📋 Briefing erstellen";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Manueller Discover-Run aus dem Dashboard
+// ---------------------------------------------------------------------------
+
+async function startDiscoverRun() {
+  if (!IS_HTTP) {
+    alert("Discover-Run geht nur ueber 'bewerber serve' (HTTP).");
+    return;
+  }
+  const btn = document.getElementById("discover-run-btn");
+  const statusEl = document.getElementById("discover-run-status");
+  btn.disabled = true;
+  btn.textContent = "⏳ laeuft ...";
+  statusEl.textContent = "Discover gestartet ...";
+  try {
+    const resp = await fetch("/api/discover/run", {method: "POST"});
+    const body = await resp.json();
+    if (!resp.ok) {
+      if (resp.status === 409 && body.current_job_id) {
+        statusEl.textContent = "Ein Discover-Run laeuft bereits - warte auf Abschluss ...";
+        pollDiscoverStatus(body.current_job_id);
+        return;
+      }
+      throw new Error(body.error || "Fehler");
+    }
+    pollDiscoverStatus(body.job_id);
+  } catch (e) {
+    statusEl.style.color = "#c33";
+    statusEl.textContent = "✗ " + e.message;
+    btn.disabled = false;
+    btn.textContent = "▶ Discover jetzt starten";
+  }
+}
+
+async function pollDiscoverStatus(jobId) {
+  const btn = document.getElementById("discover-run-btn");
+  const statusEl = document.getElementById("discover-run-status");
+  const tick = async () => {
+    try {
+      const resp = await fetch("/api/discover/status?job_id=" + encodeURIComponent(jobId));
+      const data = await resp.json();
+      if (data.status === "running") {
+        statusEl.textContent = `⏳ laeuft (seit ${data.started_at || "?"})`;
+        setTimeout(tick, 3000);
+        return;
+      }
+      if (data.status === "done") {
+        statusEl.style.color = "#1a5b2b";
+        statusEl.textContent = `✓ fertig: ${data.new_jobs} neu, ${data.total_jobs} gesamt. Dashboard wird neu geladen ...`;
+        setTimeout(() => window.location.reload(), 1500);
+        return;
+      }
+      if (data.status === "failed") {
+        statusEl.style.color = "#c33";
+        statusEl.textContent = "✗ " + (data.error || "Fehler");
+        btn.disabled = false;
+        btn.textContent = "▶ Discover jetzt starten";
+        return;
+      }
+    } catch (e) {
+      statusEl.style.color = "#c33";
+      statusEl.textContent = "Polling-Fehler: " + e.message;
+      btn.disabled = false;
+      btn.textContent = "▶ Discover jetzt starten";
+    }
+  };
+  tick();
 }
 
 async function logoutFromDashboard(evt) {

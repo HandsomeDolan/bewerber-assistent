@@ -41,6 +41,27 @@ def render_onboarding(*, current_user: str | None = None) -> str:
     return _env().get_template("onboarding.html.j2").render(current_user=current_user)
 
 
+def render_interview_briefing(
+    briefing,
+    *,
+    firma: str,
+    rolle: str,
+    generated_at: str,
+    kandidat_name: str | None = None,
+) -> str:
+    """Render the LLM-generated InterviewBriefingContent as HTML."""
+    tpl = _env().get_template("interview_briefing.html.j2")
+    return tpl.render(
+        b=briefing,
+        firma=firma,
+        rolle=rolle,
+        firma_for_footer=firma[:50],
+        rolle_for_footer=rolle[:50],
+        generated_at=generated_at,
+        kandidat_name=kandidat_name,
+    )
+
+
 def render_searches_editor(config: SearchesConfig) -> str:
     """Render the standalone /searches editor page."""
     tpl = _env().get_template("searches.html.j2")

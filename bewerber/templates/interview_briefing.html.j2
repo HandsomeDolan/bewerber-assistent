@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Interview-Briefing - {{ firma }}</title>
+<style>
+@page {
+  size: A4;
+  margin: 1.8cm 1.6cm 1.8cm 1.6cm;
+  @bottom-right {
+    content: "Seite " counter(page) " von " counter(pages);
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 8pt;
+    color: #888;
+  }
+  @bottom-left {
+    content: "{{ firma_for_footer }} - {{ rolle_for_footer }}";
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 8pt;
+    color: #888;
+  }
+}
+
+body {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 10pt;
+  line-height: 1.45;
+  color: #1a1a1a;
+}
+
+h1 {
+  font-size: 22pt;
+  margin: 0 0 4pt 0;
+  letter-spacing: -0.3pt;
+}
+h1 + .subtitle {
+  font-size: 12pt;
+  color: #555;
+  margin: 0 0 8pt 0;
+}
+.meta-line { font-size: 9.5pt; color: #888; margin: 0 0 24pt 0; }
+
+h2 {
+  font-size: 13pt;
+  margin: 22pt 0 8pt 0;
+  padding: 4pt 0 4pt 0;
+  border-top: 1.5pt solid #1a1a1a;
+  border-bottom: 1pt solid #ddd;
+  letter-spacing: 0.3pt;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+h2 + * {
+  page-break-before: avoid;
+  break-before: avoid;
+}
+
+h3 {
+  font-size: 11pt;
+  margin: 12pt 0 4pt 0;
+  font-weight: 700;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+p { margin: 4pt 0; }
+
+ul {
+  margin: 4pt 0 6pt 0;
+  padding-left: 1.2em;
+}
+ul li { margin-bottom: 2pt; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8pt 0;
+  font-size: 9.5pt;
+}
+table th, table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6pt 8pt;
+  border: 0.5pt solid #c8c8c8;
+}
+table th {
+  background: #f0f2f5;
+  font-weight: 700;
+  font-size: 9pt;
+  letter-spacing: 0.2pt;
+}
+
+.qa {
+  margin: 0 0 12pt 0;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.qa .q {
+  background: #f0f2f5;
+  padding: 6pt 10pt;
+  font-weight: 700;
+  border-left: 3pt solid #1a1a1a;
+  font-size: 10.5pt;
+}
+.qa .a {
+  padding: 8pt 10pt 4pt 13pt;
+  font-size: 10pt;
+  line-height: 1.5;
+}
+
+.callout {
+  background: #f0f6ff;
+  border: 1pt solid #b8cee8;
+  padding: 8pt 12pt;
+  margin: 10pt 0;
+  font-size: 9.5pt;
+  border-radius: 2pt;
+}
+.callout b { color: #1f4e8c; }
+
+.muted { color: #666; font-size: 9pt; }
+</style>
+</head>
+<body>
+
+<h1>Interview-Briefing</h1>
+<div class="subtitle">{{ firma }} &middot; {{ rolle }}</div>
+<div class="meta-line">
+  Generiert am {{ generated_at }}{% if kandidat_name %} fuer {{ kandidat_name }}{% endif %}
+</div>
+
+<h2>1. Das Unternehmen</h2>
+<p>{{ b.company_overview }}</p>
+{% if b.company_facts %}
+<h3>Schluessel-Fakten</h3>
+<ul>
+{% for f in b.company_facts %}<li>{{ f }}</li>
+{% endfor %}</ul>
+{% endif %}
+{% if b.methodik_und_tonalitaet %}
+<h3>Methodik &amp; Tonalitaet</h3>
+<ul>
+{% for t in b.methodik_und_tonalitaet %}<li>{{ t }}</li>
+{% endfor %}</ul>
+{% endif %}
+
+<h2>2. Die Rolle</h2>
+<p>{{ b.role_summary }}</p>
+{% if b.role_does or b.role_doesnt %}
+<table>
+<tr>
+  <th style="width:50%;">Was du tust</th>
+  <th style="width:50%;">Was du NICHT tust</th>
+</tr>
+<tr>
+  <td>
+    <ul style="margin:0; padding-left:1em;">
+    {% for x in b.role_does %}<li>{{ x }}</li>
+    {% endfor %}</ul>
+  </td>
+  <td>
+    {% if b.role_doesnt %}
+    <ul style="margin:0; padding-left:1em;">
+    {% for x in b.role_doesnt %}<li>{{ x }}</li>
+    {% endfor %}</ul>
+    {% else %}<span class="muted">(aus Posting nicht ableitbar)</span>{% endif %}
+  </td>
+</tr>
+</table>
+{% endif %}
+
+<h2>3. Dein Profil-Match</h2>
+<table>
+<tr><th style="width:35%;">Anforderung der Stelle</th><th>Belegstelle aus deinem Profil</th></tr>
+{% for e in b.profile_framing %}
+<tr>
+  <td>{{ e.anforderung }}</td>
+  <td>{{ e.match_aus_profil }}</td>
+</tr>
+{% endfor %}
+</table>
+
+<h2>4. Zu erwartende Fragen + Antworten</h2>
+{% for qa in b.expected_questions %}
+<div class="qa">
+  <div class="q">{{ loop.index }}. {{ qa.frage }}</div>
+  <div class="a">{{ qa.antwort }}</div>
+</div>
+{% endfor %}
+
+<h2>5. Fragen die du stellen solltest</h2>
+<table>
+<tr><th style="width:50%;">Frage</th><th>Was du damit zeigst / lernst</th></tr>
+{% for q in b.questions_to_ask %}
+<tr>
+  <td>{{ q.frage }}</td>
+  <td>{{ q.warum }}</td>
+</tr>
+{% endfor %}
+</table>
+
+<h2>6. Gehaltsfrage</h2>
+<div class="callout">{{ b.salary_advice }}</div>
+
+<h2>7. Schlussstatement</h2>
+<div class="callout">{{ b.closing_statement }}</div>
+
+{% if b.red_flags %}
+<h2>8. Red Flags / Kritische Punkte</h2>
+<ul>
+{% for r in b.red_flags %}<li>{{ r }}</li>
+{% endfor %}</ul>
+{% endif %}
+
+{% if b.sprechstil_tips %}
+<h2>9. Sprechstil-Tipps</h2>
+<ul>
+{% for t in b.sprechstil_tips %}<li>{{ t }}</li>
+{% endfor %}</ul>
+{% endif %}
+
+</body>
+</html>

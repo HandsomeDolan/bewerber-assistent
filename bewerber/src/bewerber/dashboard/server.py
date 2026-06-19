@@ -88,6 +88,11 @@ SESSION_MAX_AGE_SECONDS = 30 * 24 * 3600   # 30 Tage
 _onboarding_jobs: dict[str, dict] = {}
 _onboarding_lock = threading.Lock()
 
+# Background-State fuer den manuellen Discover-Run vom Dashboard aus.
+# Nur EIN Discover-Job zur Zeit (current_id). Wenn None: kein Lauf aktiv.
+_discover_state: dict = {"current_id": None, "jobs": {}}
+_discover_lock = threading.Lock()
+
 log = logging.getLogger(__name__)
 
 
@@ -135,6 +140,55 @@ def _parse_multipart(headers, body: bytes) -> dict[str, list[tuple[bytes, Option
         if name:
             out.setdefault(name, []).append((content, filename))
     return out
+
+
+def _run_discover_background(job_id: str, paths: Paths) -> None:
+    """Background-Worker fuer den manuellen Discover-Lauf."""
+    started = datetime.now().isoformat(timespec="seconds")
+    try:
+        from bewerber.discovery.searches import load_searches
+        from bewerber.discovery.orchestrator import discover
+        from bewerber.shared.llm import LLMClient
+        # Scrapper-Adapter laden (sonst leeres scraper_registry)
+        from bewerber.discovery.scrapers import arbeitsagentur as _aa  # noqa: F401
+        from bewerber.discovery.scrapers import linkedin as _li  # noqa: F401
+        from bewerber.discovery.scrapers import indeed as _id  # noqa: F401
+
+        searches_path = paths.bewerber_dir / "searches.yaml"
+        if not searches_path.is_file():
+            raise FileNotFoundError(f"searches.yaml fehlt: {searches_path}")
+        config = load_searches(searches_path)
+        if not config.searches:
+            raise ValueError("searches.yaml hat keine Sucheintraege")
+
+        master_yaml_text = paths.master_profile.read_text(encoding="utf-8")
+        state = load_state(paths.state_json)
+        jobs_before = len(state.jobs)
+        llm = LLMClient.for_scoring()
+        discover(config, state=state, master_yaml_text=master_yaml_text, llm=llm)
+        save_state(paths.state_json, state)
+        jobs_after = len(state.jobs)
+
+        with _discover_lock:
+            _discover_state["jobs"][job_id] = {
+                "status": "done",
+                "started_at": started,
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+                "new_jobs": jobs_after - jobs_before,
+                "total_jobs": jobs_after,
+                "scrape_errors": {b: e.last_error for b, e in state.scrape_errors.items()},
+            }
+            _discover_state["current_id"] = None
+    except Exception as e:  # noqa: BLE001 - background, log + report
+        log.exception("[discover] %s failed", job_id)
+        with _discover_lock:
+            _discover_state["jobs"][job_id] = {
+                "status": "failed",
+                "started_at": started,
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+                "error": str(e)[:500],
+            }
+            _discover_state["current_id"] = None
 
 
 def _run_onboarding_extraction(job_id: str, upload_dir: Path, paths: Paths) -> None:
@@ -270,6 +324,9 @@ class _Handler(BaseHTTPRequestHandler):
         if parsed_path == "/api/onboarding/status":
             self._handle_onboarding_status()
             return
+        if parsed_path == "/api/discover/status":
+            self._handle_discover_status()
+            return
         if self.path in ("/", "/index.html"):
             session = self._session_user()
             if not session:
@@ -347,6 +404,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_onboarding_scan_folder()
             elif self.path == "/api/onboarding/save":
                 self._handle_onboarding_save()
+            elif self.path == "/api/briefing":
+                self._handle_briefing()
+            elif self.path == "/api/discover/run":
+                self._handle_discover_run()
             else:
                 self._send_json(404, {"error": "unknown endpoint"})
         except Exception as e:  # noqa: BLE001
@@ -709,6 +770,132 @@ class _Handler(BaseHTTPRequestHandler):
         ).start()
 
         self._send_json(200, {"ok": True, "job_id": job_id, "files": saved})
+
+    def _handle_briefing(self) -> None:
+        """Body: {job_id}. Generiert Interview-Briefing-PDF via LLM,
+        legt sie unter <tailored_dir>/briefing/briefing_<datum>.pdf ab.
+        Synchron (~30-60s).
+        """
+        if not self._session_user():
+            self._send_json(401, {"error": "Login erforderlich"})
+            return
+        body = self._read_json()
+        job_id = body.get("job_id")
+        if not job_id:
+            self._send_json(400, {"error": "job_id erforderlich"})
+            return
+        state = load_state(self.paths.state_json)
+        job = state.jobs.get(job_id)
+        if job is None:
+            self._send_json(404, {"error": f"Job {job_id!r} nicht gefunden"})
+            return
+        if not job.tailored_dir:
+            self._send_json(400, {"error": "Job hat keinen tailored_dir - erst Bewerbung erstellen"})
+            return
+        tailored_dir = Path(job.tailored_dir)
+        if not tailored_dir.is_dir():
+            self._send_json(400, {"error": f"tailored_dir existiert nicht: {tailored_dir}"})
+            return
+        if not self.paths.master_profile.is_file():
+            self._send_json(500, {"error": "master_profile.yaml fehlt"})
+            return
+
+        from bewerber.briefing import generate_briefing
+        from bewerber.shared.llm import LLMClient
+        from bewerber.dashboard.render import render_interview_briefing
+        from weasyprint import HTML
+
+        try:
+            master_yaml_text = self.paths.master_profile.read_text(encoding="utf-8")
+            llm = LLMClient.for_scoring()
+            scoring = job.scoring
+            briefing = generate_briefing(
+                posting_text=job.raw.description or "",
+                master_yaml_text=master_yaml_text,
+                firma=job.raw.company,
+                rolle=job.raw.title,
+                matched_skills=scoring.matched_skills if scoring else None,
+                missing_skills=scoring.missing_skills if scoring else None,
+                red_flags_aus_scoring=scoring.red_flags if scoring else None,
+                llm=llm,
+            )
+        except Exception as e:  # noqa: BLE001
+            self._send_json(502, {"error": f"LLM-Call fehlgeschlagen: {e}"})
+            return
+
+        # Kandidat-Name aus Master holen
+        kandidat_name: Optional[str] = None
+        try:
+            import yaml as _yaml
+            mp = _yaml.safe_load(master_yaml_text) or {}
+            kandidat_name = (mp.get("person") or {}).get("name")
+        except Exception:  # noqa: BLE001
+            pass
+
+        generated_at = datetime.now().strftime("%d.%m.%Y %H:%M")
+        html = render_interview_briefing(
+            briefing,
+            firma=job.raw.company,
+            rolle=job.raw.title,
+            generated_at=generated_at,
+            kandidat_name=kandidat_name,
+        )
+        briefing_dir = tailored_dir / "briefing"
+        briefing_dir.mkdir(parents=True, exist_ok=True)
+        out_pdf = briefing_dir / f"briefing_{datetime.now().strftime('%Y-%m-%d_%H%M')}.pdf"
+        HTML(string=html).write_pdf(str(out_pdf))
+
+        self._send_json(200, {
+            "ok": True,
+            "pdf_path": str(out_pdf),
+            "briefing_dir": str(briefing_dir),
+        })
+
+    def _handle_discover_run(self) -> None:
+        """Startet einen Discover-Lauf im Hintergrund-Thread. Returnt sofort
+        eine job_id; UI pollt /api/discover/status."""
+        if not self._session_user():
+            self._send_json(401, {"error": "Login erforderlich"})
+            return
+        with _discover_lock:
+            if _discover_state["current_id"] is not None:
+                self._send_json(409, {
+                    "error": "Es laeuft bereits ein Discover-Run",
+                    "current_job_id": _discover_state["current_id"],
+                })
+                return
+            job_id = str(uuid.uuid4())
+            _discover_state["jobs"][job_id] = {
+                "status": "running",
+                "started_at": _now_iso(),
+            }
+            _discover_state["current_id"] = job_id
+        threading.Thread(
+            target=_run_discover_background,
+            args=(job_id, self.paths),
+            daemon=True,
+        ).start()
+        self._send_json(200, {"ok": True, "job_id": job_id})
+
+    def _handle_discover_status(self) -> None:
+        """Query ?job_id=X -> Status. Ohne job_id: aktueller current_id zurueck."""
+        if not self._session_user():
+            self._send_json(401, {"error": "Login erforderlich"})
+            return
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        job_id = (query.get("job_id") or [""])[0]
+        with _discover_lock:
+            if not job_id:
+                # ohne job_id: aktuellen laufenden Job zurueckgeben (falls vorhanden)
+                job_id = _discover_state["current_id"] or ""
+                if not job_id:
+                    self._send_json(200, {"status": "idle"})
+                    return
+            state = _discover_state["jobs"].get(job_id)
+        if state is None:
+            self._send_json(404, {"error": f"job {job_id!r} unbekannt"})
+            return
+        self._send_json(200, {**state, "job_id": job_id})
 
     def _handle_onboarding_scan_folder(self) -> None:
         """Pruefen-Button im Onboarding-Step-3: gibt Files im Ordner aus.
