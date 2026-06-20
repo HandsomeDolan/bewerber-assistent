@@ -99,7 +99,7 @@ def tailor(inp: TailorInput) -> TailorResult:
                 shutil.move(str(src), str(out_dir / fname))
 
     # Copy attachments (Zeugnisse etc.) from anlagen.yaml
-    missing_anlagen = copy_anlagen_to(anlagen_cfg, out_dir)
+    missing_anlagen = copy_anlagen_to(anlagen_cfg, out_dir, base_dir=paths.data_dir)
 
     # Posting metadata
     meta = {

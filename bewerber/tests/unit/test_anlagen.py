@@ -87,3 +87,25 @@ def test_copy_handles_empty_config(tmp_path):
 
     assert copy_anlagen_to(AnlagenConfig(), target) == []
     assert list(target.iterdir()) == []
+
+
+def test_copy_anlagen_resolves_relative_against_base_dir(tmp_path):
+    base = tmp_path / "user"
+    (base / "anlagen").mkdir(parents=True)
+    (base / "anlagen" / "zeugnis.pdf").write_text("PDF")
+    target = tmp_path / "out"
+    target.mkdir()
+    cfg = AnlagenConfig(anlagen=[Anlage(label="Z", files=[Path("anlagen/zeugnis.pdf")])])
+    missing = copy_anlagen_to(cfg, target, base_dir=base)
+    assert missing == []
+    assert (target / "zeugnis.pdf").is_file()
+
+
+def test_copy_anlagen_absolute_path_still_works(tmp_path):
+    src = tmp_path / "abs.pdf"
+    src.write_text("PDF")
+    target = tmp_path / "out"; target.mkdir()
+    cfg = AnlagenConfig(anlagen=[Anlage(label="A", files=[src])])
+    missing = copy_anlagen_to(cfg, target, base_dir=tmp_path / "irrelevant")
+    assert missing == []
+    assert (target / "abs.pdf").is_file()
