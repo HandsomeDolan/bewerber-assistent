@@ -1606,18 +1606,57 @@ def test_register_short_password_rejected(running_server):
 
 
 def test_data_isolation_between_users(running_server):
-    # Zweiten User anlegen, einloggen, dessen Dashboard sieht KEINEN Seed-Job von tuser
+    """Bea hat ihr eigenes master_profile + einen eigenen Job (Globex Bea).
+    Ihr Dashboard muss IHREN Job zeigen und NICHT tusers 'Acme'."""
     from bewerber.dashboard import auth as _auth
+
+    # --- Bea registrieren ---
     code, body = _post_json(
         running_server, "/api/register",
         {"vorname": "Bea", "nachname": "Beispiel", "passwort": "geheimpw1", "invite_code": TEST_INVITE},
         with_session=False,
     )
     assert code == 200
-    other = body["username"]
-    other_cookie = "bewerber_session=" + urllib.parse.quote(_auth.sign_session(other, TEST_SECRET))
-    # Bea hat noch kein master_profile -> / leitet auf /onboarding um (kein Zugriff auf tuser-State)
-    req = urllib.request.Request(f"http://127.0.0.1:{running_server}/", headers={"Cookie": other_cookie})
+    bea_username = body["username"]
+    bea_cookie = "bewerber_session=" + urllib.parse.quote(_auth.sign_session(bea_username, TEST_SECRET))
+
+    # --- Beas eigenes master_profile anlegen (gleicher Stub wie tuser-Fixture) ---
+    bea_paths = Paths(user=bea_username)
+    bea_paths.master_profile.write_text(
+        "person: {name: Bea Beispiel, email: bea@example.de}\nberufsprofil: x\nzielposition: []",
+    )
+
+    # --- Bea bekommt einen eigenen Seed-Job in ihrer state.json ---
+    bea_state = BewerberState(jobs={
+        "arbeitsagentur-bea1": TrackedJob(raw=RawJob(
+            board="arbeitsagentur", external_id="bea1",
+            url="https://globex.bea/job", title="Data Analyst", company="Globex Bea",
+            location="Berlin",
+        )),
+    })
+    save_state(bea_paths.state_json, bea_state)
+
+    # --- Beas Dashboard GET / ---
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/",
+        headers={"Cookie": bea_cookie},
+    )
     resp = urllib.request.urlopen(req, timeout=5)
-    # Onboarding-Redirect ODER leeres Dashboard, aber NIE Acme aus tusers state
-    assert b"Acme" not in resp.read()
+    body_bytes = resp.read()
+
+    # Bea sieht ihren Job, aber NICHT tusers "Acme"
+    assert b"Globex Bea" in body_bytes, "Beas eigener Job fehlt im Dashboard"
+    assert b"Acme" not in body_bytes, "tusers 'Acme'-Job darf in Beas Dashboard nicht auftauchen"
+
+
+def test_post_data_route_requires_session(running_server):
+    """POST /api/mark ohne Session-Cookie muss 401 zurueckgeben.
+    Sichert, dass der zentrale Guard in do_POST greift."""
+    code, body = _post_json(
+        running_server,
+        "/api/mark",
+        {"job_id": "arbeitsagentur-x1", "status": "applied"},
+        with_session=False,
+    )
+    assert code == 401, f"Erwartet 401, bekam {code}: {body}"
+    assert "eingeloggt" in body.get("error", "").lower() or "nicht" in body.get("error", "").lower()

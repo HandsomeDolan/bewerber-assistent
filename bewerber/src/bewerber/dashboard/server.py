@@ -285,6 +285,10 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _session_user(self) -> Optional[str]:
         """Verifiziert das signierte bewerber_session-Cookie -> username oder None."""
+        secret = _session_secret()
+        if not secret:
+            # Leerer HMAC-Key darf niemals eine gueltige Session liefern
+            return None
         raw = self.headers.get("Cookie", "")
         if not raw:
             return None
@@ -297,7 +301,7 @@ class _Handler(BaseHTTPRequestHandler):
         if morsel is None:
             return None
         value = urllib.parse.unquote(morsel.value).strip()
-        return auth.verify_session(value, _session_secret())
+        return auth.verify_session(value, secret)
 
     def _set_session_cookie_header(self, username: str) -> None:
         """Set-Cookie mit signierter Session. VOR end_headers() rufen."""
@@ -412,6 +416,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib API
         try:
+            _OPEN_POST = {"/login", "/api/register", "/logout"}
+            if self.path not in _OPEN_POST and self._require_session() is None:
+                return
             if self.path == "/api/mark":
                 self._handle_mark()
             elif self.path == "/api/note":

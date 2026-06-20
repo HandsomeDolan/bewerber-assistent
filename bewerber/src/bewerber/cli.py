@@ -320,6 +320,13 @@ def cmd_serve(port: int, no_browser: bool) -> None:
         click.echo("Keine .env gefunden - starte Setup-Wizard ...\n")
         run_setup_wizard()
         load_dotenv(env_path, override=True)  # Env-Werte ins laufende Prozess-os.environ ziehen
+    # Secret + Invite-Code sicherstellen (idempotent; erzeugt nur, wenn noch nicht vorhanden)
+    import secrets as _secrets
+    from bewerber.dashboard import auth as _auth
+    _auth.ensure_env_value(env_path, "BEWERBER_SECRET_KEY", lambda: _secrets.token_hex(32))
+    invite = _auth.ensure_env_value(env_path, "BEWERBER_INVITE_CODE", lambda: _secrets.token_hex(8))
+    load_dotenv(env_path, override=True)
+    click.echo(f"  Invite-Code (zum Registrieren): {invite}")
     # Also write a static dashboard.html so the file is up-to-date for offline use.
     state = load_state(paths.state_json)
     paths.dashboard_html.write_text(render_dashboard(state), encoding="utf-8")
