@@ -347,5 +347,18 @@ def cmd_serve(port: int, no_browser: bool) -> None:
         server.server_close()
 
 
+@main.command("migrate-to-multiuser")
+@click.option("--as", "username", required=True, help="Ziel-Username (z. B. seigenwillig).")
+def cmd_migrate_to_multiuser(username: str) -> None:
+    """Verschiebt das bestehende Single-User-Setup nach users/<username>/ (idempotent)."""
+    from bewerber.migration import migrate_to_multiuser
+    paths = Paths()
+    report = migrate_to_multiuser(paths.workspace, paths.documents, username)
+    click.echo(f"Migration nach users/{username}/ abgeschlossen:")
+    click.echo(f"  Dateien verschoben:  {report['moved_files']}")
+    click.echo(f"  Ordner verschoben:   {len(report['moved_dirs'])}")
+    click.echo(f"  Pfade umgeschrieben: {report['rewritten_paths']}")
+
+
 if __name__ == "__main__":
     main()
