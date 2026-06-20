@@ -46,13 +46,16 @@ Designed for personal local use; not hardened for multi-user / public exposure.
 from __future__ import annotations
 
 import http.cookies
+import io
 import json
 import logging
+import mimetypes
 import os
 import subprocess
 import threading
 import uuid
 import urllib.parse
+import zipfile
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -366,6 +369,15 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if parsed_path == "/api/discover/status":
             self._handle_discover_status()
+            return
+        if parsed_path == "/api/job-files":
+            self._handle_job_files(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query))
+            return
+        if parsed_path == "/api/download":
+            self._handle_download(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query))
+            return
+        if parsed_path == "/api/download-zip":
+            self._handle_download_zip(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query))
             return
         if self.path in ("/", "/index.html"):
             session = self._session_user()
@@ -1329,6 +1341,78 @@ class _Handler(BaseHTTPRequestHandler):
             return
         ok = _open_folder_macos(path)
         self._send_json(200 if ok else 500, {"ok": ok})
+
+    def _resolve_job_dir(self, job_id: str):
+        """Gibt (tailored_dir: Path) des Jobs aus der state.json des eingeloggten
+        Users zurueck, oder sendet 401/404 und gibt None."""
+        if self._require_session() is None:
+            return None
+        if not job_id:
+            self._send_json(400, {"error": "job_id erforderlich"})
+            return None
+        state = load_state(self.paths.state_json)
+        job = state.jobs.get(job_id)
+        if job is None or not job.tailored_dir:
+            self._send_json(404, {"error": "Job/Ordner nicht gefunden"})
+            return None
+        td = Path(job.tailored_dir)
+        if not td.is_dir():
+            self._send_json(404, {"error": "Ordner existiert nicht"})
+            return None
+        return td
+
+    def _handle_job_files(self, query: dict) -> None:
+        job_id = (query.get("job_id") or [""])[0]
+        td = self._resolve_job_dir(job_id)
+        if td is None:
+            return
+        files = []
+        for p in sorted(td.rglob("*")):
+            if p.is_file():
+                files.append({"name": str(p.relative_to(td)), "size": p.stat().st_size})
+        self._send_json(200, {"files": files})
+
+    def _handle_download(self, query: dict) -> None:
+        job_id = (query.get("job_id") or [""])[0]
+        rel = (query.get("file") or [""])[0]
+        td = self._resolve_job_dir(job_id)
+        if td is None:
+            return
+        if not rel:
+            self._send_json(400, {"error": "file erforderlich"})
+            return
+        target = (td / rel).resolve()
+        if not str(target).startswith(str(td.resolve()) + os.sep) or not target.is_file():
+            self._send_json(400, {"error": "ungueltiger Pfad"})
+            return
+        data = target.read_bytes()
+        ctype = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f'attachment; filename="{target.name}"')
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _handle_download_zip(self, query: dict) -> None:
+        job_id = (query.get("job_id") or [""])[0]
+        td = self._resolve_job_dir(job_id)
+        if td is None:
+            return
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for p in sorted(td.rglob("*")):
+                if p.is_file():
+                    zf.write(p, arcname=str(p.relative_to(td)))
+        data = buf.getvalue()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f'attachment; filename="{td.name}.zip"')
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
 
 
 def _load_searches_config(paths: Paths) -> SearchesConfig:

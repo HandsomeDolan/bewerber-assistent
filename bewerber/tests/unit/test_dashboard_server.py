@@ -1701,3 +1701,73 @@ def test_anlagen_upload_saves_to_user_dir(running_server):
 def test_anlagen_upload_requires_session(running_server):
     code, body = _post_json(running_server, "/api/anlagen/upload", {}, with_session=False)
     assert code == 401
+
+
+# ---------------------------------------------------------------------------
+# Download-Endpoints: /api/job-files, /api/download, /api/download-zip
+# ---------------------------------------------------------------------------
+
+def _seed_tailored_job(jid="arbeitsagentur-dl1"):
+    """Legt einen Job mit tailored_dir + zwei Dateien im User-Workspace an."""
+    up = Paths(user=TEST_USER)
+    td = up.bewerbungen / "2026-06-20_Acme_Dev"
+    td.mkdir(parents=True, exist_ok=True)
+    (td / "lebenslauf.pdf").write_bytes(b"%PDF-CV")
+    (td / "anschreiben.pdf").write_bytes(b"%PDF-AN")
+    state = load_state(up.state_json)
+    from bewerber.shared.state_schema import RawJob, TrackedJob
+    state.jobs[jid] = TrackedJob(
+        raw=RawJob(board="arbeitsagentur", external_id="dl1", url="u",
+                   title="Dev", company="Acme", location="L"),
+        tailored_dir=str(td),
+    )
+    save_state(up.state_json, state)
+    return jid, td
+
+
+def test_job_files_lists_user_files(running_server):
+    jid, td = _seed_tailored_job()
+    code, body = _get(running_server, f"/api/job-files?job_id={jid}")
+    assert code == 200
+    names = {f["name"] for f in json.loads(body)["files"]}
+    assert {"lebenslauf.pdf", "anschreiben.pdf"} <= names
+
+
+def test_download_streams_file(running_server):
+    jid, td = _seed_tailored_job()
+    import urllib.request
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/download?job_id={jid}&file=lebenslauf.pdf",
+        headers={"Cookie": _signed_cookie()},
+    )
+    resp = urllib.request.urlopen(req, timeout=5)
+    assert resp.read() == b"%PDF-CV"
+
+
+def test_download_blocks_path_traversal(running_server):
+    jid, td = _seed_tailored_job()
+    code, body = _get(running_server, f"/api/download?job_id={jid}&file=../../../etc/passwd")
+    assert code == 400
+
+
+def test_download_unknown_job_404(running_server):
+    code, body = _get(running_server, "/api/download?job_id=does-not-exist&file=x.pdf")
+    assert code == 404
+
+
+def test_download_requires_session(running_server):
+    jid, td = _seed_tailored_job()
+    code, body = _get(running_server, f"/api/job-files?job_id={jid}", with_session=False)
+    assert code == 401
+
+
+def test_download_zip_contains_files(running_server):
+    import io, zipfile, urllib.request
+    jid, td = _seed_tailored_job()
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/download-zip?job_id={jid}",
+        headers={"Cookie": _signed_cookie()},
+    )
+    resp = urllib.request.urlopen(req, timeout=5)
+    zf = zipfile.ZipFile(io.BytesIO(resp.read()))
+    assert "lebenslauf.pdf" in zf.namelist()
