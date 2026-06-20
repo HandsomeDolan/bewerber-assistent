@@ -361,5 +361,15 @@ def cmd_migrate_to_multiuser(username: str) -> None:
     click.echo(f"  Pfade umgeschrieben: {report['rewritten_paths']}")
 
 
+@main.command("migrate-anlagen")
+@click.option("--as", "username", required=True, help="Ziel-Username.")
+def cmd_migrate_anlagen(username: str) -> None:
+    """Kopiert anlagen.yaml-Dateien nach users/<username>/anlagen/ + relative Pfade."""
+    from bewerber.migration import migrate_anlagen
+    paths = Paths()
+    report = migrate_anlagen(paths.workspace, username)
+    click.echo(f"Anlagen-Migration: {report['copied']} kopiert, YAML umgeschrieben: {bool(report['rewritten'])}")
+
+
 if __name__ == "__main__":
     main()

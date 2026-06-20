@@ -54,3 +54,38 @@ def test_migration_is_idempotent(tmp_path):
     assert report2["moved_files"] == []
     user_dir = workspace / "bewerber" / "users" / "seigenwillig"
     assert (user_dir / "master_profile.yaml").is_file()
+
+
+def test_migrate_anlagen_copies_and_rewrites(tmp_path):
+    import yaml
+    from bewerber.migration import migrate_anlagen
+    workspace = tmp_path / "ws"
+    user_dir = workspace / "bewerber" / "users" / "u1"
+    user_dir.mkdir(parents=True)
+    # Externe Quelldatei (absoluter Pfad), wie nach rsync auf dem Pi vorhanden
+    src = tmp_path / "Allgemeine Dokumente" / "REFA.pdf"
+    src.parent.mkdir(parents=True)
+    src.write_text("PDF")
+    (user_dir / "anlagen.yaml").write_text(
+        yaml.safe_dump({"anlagen": [{"label": "REFA", "files": [str(src)]}]}),
+    )
+    report = migrate_anlagen(workspace, "u1")
+    assert report["copied"] == 1
+    assert (user_dir / "anlagen" / "REFA.pdf").is_file()
+    cfg = yaml.safe_load((user_dir / "anlagen.yaml").read_text())
+    assert cfg["anlagen"][0]["files"] == ["anlagen/REFA.pdf"]
+
+
+def test_migrate_anlagen_idempotent(tmp_path):
+    import yaml
+    from bewerber.migration import migrate_anlagen
+    workspace = tmp_path / "ws"
+    user_dir = workspace / "bewerber" / "users" / "u1"
+    user_dir.mkdir(parents=True)
+    src = tmp_path / "doc.pdf"; src.write_text("PDF")
+    (user_dir / "anlagen.yaml").write_text(
+        yaml.safe_dump({"anlagen": [{"label": "D", "files": [str(src)]}]}),
+    )
+    migrate_anlagen(workspace, "u1")
+    report2 = migrate_anlagen(workspace, "u1")
+    assert report2["copied"] == 0  # bereits relativ -> nichts mehr zu tun
