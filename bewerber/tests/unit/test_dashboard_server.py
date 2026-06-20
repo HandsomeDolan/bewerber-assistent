@@ -1771,3 +1771,22 @@ def test_download_zip_contains_files(running_server):
     resp = urllib.request.urlopen(req, timeout=5)
     zf = zipfile.ZipFile(io.BytesIO(resp.read()))
     assert "lebenslauf.pdf" in zf.namelist()
+
+
+def test_download_zip_excludes_symlinks(running_server):
+    import io, zipfile, urllib.request, os
+    jid, td = _seed_tailored_job("arbeitsagentur-sym1")
+    # plant a symlink inside the tailored dir pointing outside
+    secret = td.parent / "secret.txt"
+    secret.write_text("TOPSECRET")
+    try:
+        os.symlink(secret, td / "leak.txt")
+    except (OSError, NotImplementedError):
+        import pytest; pytest.skip("symlinks not supported")
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/download-zip?job_id={jid}",
+        headers={"Cookie": _signed_cookie()},
+    )
+    resp = urllib.request.urlopen(req, timeout=5)
+    zf = zipfile.ZipFile(io.BytesIO(resp.read()))
+    assert "leak.txt" not in zf.namelist()

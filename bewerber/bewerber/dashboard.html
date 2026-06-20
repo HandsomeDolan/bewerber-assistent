@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Bewerber-Dashboard</title>
+<style>
+* { box-sizing: border-box; }
+body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.4; color: #1a1a1a; margin: 0; padding: 16px 24px; background: #fafafa; }
+h1 { font-size: 24px; margin: 0 0 8px 0; }
+.meta { color: #555; font-size: 12px; margin-bottom: 16px; }
+.controls { display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
+.controls label { font-size: 12px; color: #555; }
+.controls input, .controls select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+.controls input[type=search] { width: 280px; }
+table { width: 100%; border-collapse: collapse; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
+th { background: #f0f0f0; font-weight: 600; cursor: pointer; user-select: none; }
+th:hover { background: #e8e8e8; }
+tr:hover { background: #f8f8f8; }
+.score { font-weight: 700; text-align: center; min-width: 36px; }
+.score-9, .score-10 { color: #1a7a1a; }
+.score-7, .score-8 { color: #4a6a1a; }
+.score-5, .score-6 { color: #aa7a1a; }
+.score-1, .score-2, .score-3, .score-4 { color: #aa3a1a; }
+.status { padding: 2px 8px; border-radius: 3px; font-size: 12px; white-space: nowrap; }
+.status-discovered { background: #e8e8e8; }
+.status-shortlisted { background: #d8e8f8; }
+.status-tailored { background: #f8e8d8; }
+.status-applied { background: #d8f0d8; }
+.status-interview { background: #f0d8f8; }
+.status-offer { background: #b0f0b0; font-weight: 700; }
+.status-rejected { background: #f8d8d8; color: #555; }
+.status-withdrawn { background: #e0e0e0; color: #777; }
+.status-declined { background: #ede0e8; color: #777; font-style: italic; }
+.status-select-wrap { font-size: 12px; color: #444; margin-left: 12px; }
+.status-select-wrap select { font: inherit; font-size: 12px; padding: 2px 6px; margin-left: 4px; }
+.errors { background: #fff4e0; border: 1px solid #f0c890; padding: 8px 12px; margin: 12px 0; border-radius: 4px; font-size: 12px; }
+.errors b { color: #aa5a00; }
+.detail { display: none; padding: 12px; background: #fafafa; border-left: 3px solid #888; margin: 4px 0; }
+tr.expanded + tr.detail { display: table-row; }
+.detail h4 { margin: 4px 0; }
+.detail .links a { display: inline-block; margin-right: 12px; }
+.muted { color: #999; }
+.action-btn {
+  display: inline-block; margin: 4px 8px 4px 0;
+  padding: 6px 12px; border: 1px solid #1a3a5c;
+  background: #1a3a5c; color: white; border-radius: 4px;
+  font-size: 13px; cursor: pointer; font-weight: 600;
+}
+.action-btn:hover { background: #2a4a6c; }
+.action-btn:disabled { background: #888; border-color: #888; cursor: not-allowed; }
+.tailor-form {
+  background: #f4f6f8; border: 1px solid #d8dde2; border-radius: 4px;
+  padding: 8px 10px; margin: 8px 0;
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+}
+.tailor-form label { font-size: 11px; color: #333; display: flex; flex-direction: column; }
+.tailor-form .req-mark { color: #c33; margin-left: 2px; }
+.tailor-form .label-text { display: inline-block; font-weight: 600; }
+.desc-toggle {
+  background: none; border: none; padding: 0 4px;
+  color: #2266cc; cursor: pointer; font: inherit; font-size: 12px;
+  text-decoration: underline;
+}
+.desc-toggle:hover { color: #1a55b3; }
+.arbeitsmodell-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px;
+  font-size: 10px; font-weight: 600; border-radius: 3px;
+  text-transform: uppercase; letter-spacing: 0.3pt;
+}
+.arbeitsmodell-remote { background: #e6f4ea; color: #1f6d31; border: 1px solid #b8dec3; }
+.arbeitsmodell-hybrid { background: #e8f0fc; color: #1f4e8c; border: 1px solid #b8cee8; }
+
+.notes-cell { max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-style: italic; color: #555; }
+.notes-edit { width: 100%; min-height: 80px; box-sizing: border-box; padding: 8px 10px; border: 1px solid #c0c8d0; border-radius: 4px; font: inherit; font-size: 13px; resize: vertical; margin: 4px 0; }
+.notes-save-btn { font: inherit; font-size: 12px; padding: 3px 10px; border: 1px solid #2266cc; background: #2266cc; color: #fff; border-radius: 3px; cursor: pointer; margin-left: 8px; font-weight: 600; }
+.notes-save-btn:hover { background: #1a55b3; }
+.notes-status { font-size: 12px; margin-left: 8px; font-weight: normal; }
+
+.batch-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 1000; }
+.batch-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
+.batch-modal-content {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: #fff; border-radius: 8px; padding: 20px 26px;
+  width: 640px; max-width: 92vw; max-height: 80vh; overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+.batch-modal-content h2 { margin: 0 0 12px 0; font-size: 18px; }
+.batch-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-bottom: 1px solid #eee;
+  font-size: 13px;
+}
+.batch-row:last-child { border-bottom: none; }
+.batch-row .label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.batch-row .bar-wrap { width: 140px; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
+.batch-row .bar { height: 100%; background: #2266cc; width: 0%; transition: width 0.4s; }
+.batch-row.done { color: #1f6d31; }
+.batch-row.done .bar { width: 100% !important; background: #34a853; }
+.batch-row.error { color: #c33; }
+.batch-row .icon { width: 18px; text-align: center; font-weight: 700; }
+.batch-row.error .bar-wrap { display: none; }
+.batch-row.done .bar-wrap { display: none; }
+.batch-row.error .err-msg { color: #c33; font-size: 11px; font-style: italic; }
+
+.failed-urls-section { background: #fff; border: 1px solid #f3c2c2; border-radius: 5px; padding: 12px 16px; margin: 16px 0; }
+.failed-urls-section h3 { margin: 0 0 10px 0; font-size: 14px; color: #8a1a1a; display: flex; justify-content: space-between; align-items: center; }
+.failed-url-row {
+  display: grid; grid-template-columns: 1fr auto auto auto;
+  gap: 8px; align-items: center; padding: 6px 0;
+  border-bottom: 1px solid #fbe6e6; font-size: 13px;
+}
+.failed-url-row:last-child { border-bottom: none; }
+.failed-url-row .url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+.failed-url-row .err { color: #c33; font-size: 11px; font-style: italic; }
+.failed-url-row button { font-size: 11px; padding: 3px 10px; }
+
+.select-col { width: 32px; text-align: center; }
+.batch-action-bar {
+  background: #e8f0fc; border: 1px solid #b8cee8;
+  padding: 10px 16px; margin: 12px 0; border-radius: 5px;
+  display: flex; align-items: center; gap: 12px;
+  position: sticky; top: 0; z-index: 50;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+}
+.tailor-status { font-size: 12px; margin-left: 10px; }
+.action-btn.primary { background: #2266cc; color: #fff; border-color: #2266cc; font-weight: 600; }
+.action-btn.primary:hover:not(:disabled) { background: #1a55b3; }
+
+.add-posting { background: #fff; border: 1px solid #d8e0e8; border-radius: 5px; padding: 10px 16px; margin: 12px 0 14px 0; }
+.add-posting summary { cursor: pointer; font-weight: 600; color: #2266cc; padding: 4px 0; }
+.add-posting summary:hover { color: #1a55b3; }
+.add-grid { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 10px; align-items: end; margin: 12px 0 8px 0; }
+.add-grid label { font-size: 12px; color: #555; display: flex; flex-direction: column; }
+.add-grid input { padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font: inherit; font-size: 13px; margin-top: 3px; }
+.add-grid button { padding: 7px 14px; background: #2266cc; color: #fff; border: 1px solid #2266cc; border-radius: 4px; font-weight: 600; cursor: pointer; }
+.add-grid button:hover:not(:disabled) { background: #1a55b3; }
+.add-grid button:disabled { opacity: 0.5; cursor: not-allowed; }
+.add-hint { font-size: 12px; color: #666; margin-top: 6px; line-height: 1.5; }
+#add-status { font-size: 13px; padding: 6px 10px; border-radius: 4px; margin-top: 6px; }
+.tailor-form input {
+  margin-top: 2px; padding: 4px 6px;
+  border: 1px solid #c0c8d0; border-radius: 3px;
+  font-size: 13px; min-width: 180px;
+}
+.tailor-form input:invalid { border-color: #d8a0a0; }
+.cmd-box {
+  margin: 6px 0; padding: 8px 10px;
+  background: #1e1e1e; color: #d8d8d8;
+  border-radius: 4px;
+  font-family: "SF Mono", "Monaco", monospace;
+  font-size: 11.5px; white-space: pre-wrap; word-break: break-all;
+  display: none;
+}
+.cmd-box.visible { display: block; }
+.copy-toast { display: inline-block; color: #1a7a1a; font-size: 12px; font-weight: 600; margin-left: 8px; }
+.applied-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 4px 12px 4px 0; font-weight: 600; cursor: pointer; }
+.applied-toggle input { width: 18px; height: 18px; cursor: pointer; }
+.folder-btn {
+  display: inline-block; margin: 4px 8px 4px 0;
+  padding: 6px 12px; border: 1px solid #888;
+  background: white; color: #1a3a5c; border-radius: 4px;
+  font-size: 13px; cursor: pointer; font-weight: 600;
+  text-decoration: none;
+}
+.folder-btn:hover { background: #f4f6f8; }
+.api-warn { color: #aa5a00; font-size: 11px; margin-left: 8px; }
+.applied-link-input {
+  margin-left: 8px; padding: 4px 6px;
+  border: 1px solid #c0c8d0; border-radius: 3px;
+  font-size: 12px; min-width: 220px;
+}
+</style>
+</head>
+<body>
+<h1>Bewerber-Dashboard
+  <span style="float:right; font-size:13px; font-weight:normal;">
+    <a href="/anlagen" style="padding:5px 12px; border:1px solid #c0c8d0; border-radius:4px; text-decoration:none; color:#333; margin-right:6px;">🗂 Anlagen verwalten</a>
+    <a href="/searches" style="padding:5px 12px; border:1px solid #c0c8d0; border-radius:4px; text-decoration:none; color:#333; margin-right:6px;">⚙ Suchen bearbeiten</a>
+    
+  </span>
+</h1>
+<div class="meta">
+  Letzter Discovery-Run: <b>noch nie</b> ·
+  0 Jobs insgesamt
+</div>
+
+<div class="add-posting">
+  <details>
+    <summary>+ Ausschreibung manuell hinzufuegen (Stepstone, LinkedIn, etc.)</summary>
+    <div class="add-grid">
+      <label>URL<input type="url" id="add-url" placeholder="https://www.stepstone.de/job/..." required></label>
+      <label>Firma<input type="text" id="add-firma" placeholder="z. B. BMW Group" required></label>
+      <label>Rolle<input type="text" id="add-rolle" placeholder="z. B. AI Product Manager" required></label>
+      <button id="add-btn" onclick="addPostingFromUrl()">+ Ausschreibung hinzufuegen</button>
+    </div>
+    <div id="add-status" class="api-warn" style="display:none;"></div>
+    <div class="add-hint">
+      Server snapshotet die URL (Playwright) und scort sie gegen dein Master-Profil.
+      Dauert ca. 10-15 s. Die Bewerbung erstellt sich erst, wenn du auf der entstehenden
+      Karte unten auf "Bewerbung erstellen" klickst.
+    </div>
+  </details>
+</div>
+
+<div class="add-posting">
+  <details>
+    <summary>+ Mehrere URLs auf einmal verarbeiten (Batch-Scoring)</summary>
+    <label class="field" style="display:block; margin:10px 0 6px 0; font-size:12px; color:#555; font-weight:600;">
+      URLs (eine pro Zeile)
+    </label>
+    <textarea id="batch-urls" rows="6" placeholder="https://...&#10;https://...&#10;https://..." style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #ccc; border-radius:4px; font:inherit; font-size:13px; font-family: ui-monospace, 'SF Mono', Menlo, monospace;"></textarea>
+    <div style="margin-top:8px;">
+      <button id="batch-btn" onclick="startBatch()" style="padding:7px 14px; background:#2266cc; color:#fff; border:1px solid #2266cc; border-radius:4px; font-weight:600; cursor:pointer;">▶ Batch starten</button>
+    </div>
+    <div class="add-hint">
+      Firma + Rolle werden von der LLM aus dem Posting extrahiert - keine manuelle
+      Eingabe noetig. Pro URL ein LLM-Call (~5-10s). Fehlerhafte URLs werden uebersprungen
+      und landen in der "Fehlgeschlagene URLs"-Sektion unten am Dashboard.
+    </div>
+  </details>
+</div>
+
+<div id="batch-modal" class="batch-modal" style="display:none;">
+  <div class="batch-modal-backdrop"></div>
+  <div class="batch-modal-content">
+    <h2>Batch-Lauf <span id="batch-summary" class="muted" style="font-weight:normal; font-size:13px;"></span></h2>
+    <div id="batch-rows"></div>
+    <div style="margin-top:16px; text-align:right;">
+      <button id="batch-close" onclick="closeBatchModal()" disabled
+              style="padding:8px 16px; border:1px solid #ccc; background:#fff; border-radius:4px; cursor:pointer; font-weight:600;">
+        Schliessen
+      </button>
+    </div>
+  </div>
+</div>
+
+
+
+
+
+<div class="controls">
+  <label>Suche: <input type="search" id="q" placeholder="Firma, Titel, Beschreibung …"></label>
+  <label>Status: <select id="filter-status">
+    <option value="">alle</option>
+    <option value="discovered">entdeckt</option>
+    <option value="shortlisted">vorgemerkt</option>
+    <option value="tailored">getailored</option>
+    <option value="applied">beworben</option>
+    <option value="interview">eingeladen</option>
+    <option value="offer">angebot</option>
+    <option value="rejected">abgelehnt</option>
+    <option value="withdrawn">zurueckgezogen</option>
+    <option value="declined">abgewaehlt</option>
+  </select></label>
+  <label>Min Score: <select id="filter-score">
+    <option value="0">alle</option>
+    <option value="5">>=5</option>
+    <option value="6" selected>>=6</option>
+    <option value="7">>=7</option>
+    <option value="8">>=8</option>
+  </select></label>
+  <label>Board: <select id="filter-board">
+    <option value="">alle</option>
+    <option value="arbeitsagentur">arbeitsagentur</option>
+    <option value="linkedin">linkedin</option>
+    <option value="indeed">indeed</option>
+    <option value="manual">manual (tailored)</option>
+  </select></label>
+</div>
+
+<div id="batch-action-bar" class="batch-action-bar" style="display:none;">
+  <span><b id="batch-selected-count">0</b> Jobs ausgewaehlt</span>
+  <button onclick="clearSelection()" style="background:#fff; border:1px solid #ccc; padding:5px 10px; border-radius:3px; cursor:pointer;">↺ Auswahl aufheben</button>
+  <button onclick="openBatchTailorModal()" style="background:#2266cc; color:#fff; border:1px solid #2266cc; padding:5px 14px; border-radius:3px; cursor:pointer; font-weight:600;">📄 Bewerbungen erstellen</button>
+</div>
+
+<div id="batch-tailor-params-modal" class="batch-modal" style="display:none;">
+  <div class="batch-modal-backdrop" onclick="closeBatchTailorParamsModal()"></div>
+  <div class="batch-modal-content" style="width: 460px;">
+    <h2>Batch-Bewerbungen erstellen</h2>
+    <p class="muted" style="font-size:13px; margin-top:0;">
+      Fuer <b id="batch-tailor-jobcount">0</b> Jobs werden Lebenslauf + Anschreiben
+      erstellt. Starttermin gilt fuer ALLE, Gehalt optional.
+      Bereits getailorde Jobs werden uebersprungen.
+    </p>
+    <label class="field">
+      <span style="display:block; font-weight:600; margin-bottom:4px;">Starttermin <span style="color:#c33;">*</span></span>
+      <input type="text" id="batch-tailor-start" placeholder="z. B. ab sofort, 2026-08-01" required
+             style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:4px;">
+    </label>
+    <label class="field" style="display:block; margin-top:10px;">
+      <span style="display:block; font-weight:600; margin-bottom:4px;">Gehaltsvorstellung <span style="color:#888; font-weight:normal;">(optional)</span></span>
+      <input type="text" id="batch-tailor-gehalt" placeholder="z. B. 65.000 EUR brutto/Jahr"
+             style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:4px;">
+    </label>
+    <div style="margin-top:16px; text-align:right;">
+      <button onclick="closeBatchTailorParamsModal()" style="padding:8px 14px; background:#fff; border:1px solid #ccc; border-radius:4px; cursor:pointer;">Abbrechen</button>
+      <button onclick="startBatchTailor()" style="padding:8px 14px; background:#2266cc; color:#fff; border:1px solid #2266cc; border-radius:4px; cursor:pointer; font-weight:600; margin-left:6px;">▶ Starten</button>
+    </div>
+  </div>
+</div>
+
+<div id="batch-tailor-progress-modal" class="batch-modal" style="display:none;">
+  <div class="batch-modal-backdrop"></div>
+  <div class="batch-modal-content">
+    <h2>Bewerbungen werden erstellt <span id="batch-tailor-summary" class="muted" style="font-weight:normal; font-size:13px;"></span></h2>
+    <div id="batch-tailor-rows"></div>
+    <div style="margin-top:16px; text-align:right;">
+      <button id="batch-tailor-close" onclick="closeBatchTailorProgressModal()" disabled
+              style="padding:8px 16px; border:1px solid #ccc; background:#fff; border-radius:4px; cursor:pointer; font-weight:600;">
+        Schliessen
+      </button>
+    </div>
+  </div>
+</div>
+
+<table id="jobs-table">
+  <thead><tr>
+    <th class="select-col"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" title="Sichtbare auswaehlen"></th>
+    <th data-sort="score">Score</th>
+    <th data-sort="status">Status</th>
+    <th data-sort="applied_date">Beworben am</th>
+    <th data-sort="notes">Bemerkung</th>
+    <th data-sort="company">Firma</th>
+    <th data-sort="title">Titel</th>
+    <th data-sort="location">Ort</th>
+    <th data-sort="board">Board</th>
+    <th data-sort="posted_date">Veröff.</th>
+  </tr></thead>
+  <tbody id="jobs-tbody"></tbody>
+</table>
+
+<script id="data" type="application/json">{"schema_version": 1, "last_discovery_run": null, "scrape_errors": {}, "jobs": {}, "failed_urls": []}</script>
+<script>
+const STATE = JSON.parse(document.getElementById("data").textContent);
+const tbody = document.getElementById("jobs-tbody");
+const q = document.getElementById("q");
+const fStatus = document.getElementById("filter-status");
+const fScore = document.getElementById("filter-score");
+const fBoard = document.getElementById("filter-board");
+let currentSort = { key: "score", dir: -1 };
+
+function applyFilters() {
+  const query = (q.value || "").toLowerCase();
+  const minScore = parseInt(fScore.value || "0", 10);
+  const statusFilter = fStatus.value;
+  const boardFilter = fBoard.value;
+
+  let rows = Object.entries(STATE.jobs).map(([jid, job]) => ({ jid, ...job }));
+  rows = rows.filter(r => {
+    if (statusFilter && r.status !== statusFilter) return false;
+    if (boardFilter && r.raw.board !== boardFilter) return false;
+    const score = (r.scoring && r.scoring.fit_score) || 0;
+    if (score < minScore) return false;
+    if (query) {
+      const hay = [r.raw.title, r.raw.company, r.raw.location, r.raw.description || "", r.notes || ""].join(" ").toLowerCase();
+      if (!hay.includes(query)) return false;
+    }
+    return true;
+  });
+  rows.sort((a, b) => {
+    const key = currentSort.key;
+    let av, bv;
+    if (key === "score") { av = (a.scoring && a.scoring.fit_score) || 0; bv = (b.scoring && b.scoring.fit_score) || 0; }
+    else if (key === "posted_date") { av = a.raw.posted_date || ""; bv = b.raw.posted_date || ""; }
+    else if (key === "applied_date") { av = appliedDate(a); bv = appliedDate(b); }
+    else if (key === "notes") { av = (a.notes || "").trim().toLowerCase(); bv = (b.notes || "").trim().toLowerCase(); }
+    else if (key === "board") { av = a.raw.board; bv = b.raw.board; }
+    else if (key === "title" || key === "company" || key === "location") { av = a.raw[key] || ""; bv = b.raw[key] || ""; }
+    else { av = a[key] || ""; bv = b[key] || ""; }
+    return (av < bv ? -1 : av > bv ? 1 : 0) * currentSort.dir;
+  });
+  renderRows(rows);
+}
+
+function renderRows(rows) {
+  tbody.innerHTML = "";
+  for (const r of rows) {
+    const score = (r.scoring && r.scoring.fit_score) || 0;
+    const tr = document.createElement("tr");
+    tr.dataset.jid = r.jid;
+    const alreadyTailored = !!r.tailored_dir;
+    tr.innerHTML = `
+      <td class="select-col" onclick="event.stopPropagation()">
+        <input type="checkbox" class="row-select" data-jid="${r.jid}"
+               ${alreadyTailored ? 'disabled title="Bereits getailored"' : ''}
+               onchange="onRowSelectChange(this)">
+      </td>
+      <td class="score score-${score}">${score || "—"}</td>
+      <td><span class="status status-${r.status}">${statusLabel(r.status)}</span></td>
+      <td>${appliedDate(r) || "—"}</td>
+      <td class="notes-cell">${notesPreview(r.notes)}</td>
+      <td>${escapeHtml(r.raw.company)}</td>
+      <td>${escapeHtml(r.raw.title)}</td>
+      <td>${escapeHtml(r.raw.location)}${arbeitsmodellBadge(r.raw.arbeitsmodell)}</td>
+      <td>${escapeHtml(r.raw.board)}</td>
+      <td>${r.raw.posted_date || "—"}</td>
+    `;
+    tr.addEventListener("click", () => toggleDetail(tr, r));
+    tbody.appendChild(tr);
+
+    const detail = document.createElement("tr");
+    detail.className = "detail";
+    detail.innerHTML = `<td colspan="10">${detailHtml(r)}</td>`;
+    detail.style.display = "none";
+    tbody.appendChild(detail);
+  }
+}
+
+function toggleDetail(tr, r) {
+  const next = tr.nextElementSibling;
+  if (!next || !next.classList.contains("detail")) return;
+  const showing = next.style.display === "table-row";
+  next.style.display = showing ? "none" : "table-row";
+}
+
+function detailHtml(r) {
+  const scoring = r.scoring || {};
+  const linkCv = r.tailored_dir ? `<a href="file://${r.tailored_dir}/lebenslauf.pdf">Lebenslauf PDF</a>` : "";
+  const linkAns = r.tailored_dir ? `<a href="file://${r.tailored_dir}/anschreiben.pdf">Anschreiben PDF</a>` : "";
+  const folderBtn = r.tailored_dir
+    ? `<button class="folder-btn" onclick="openFolder('${escapeAttr(r.tailored_dir)}', event)">📂 Bewerbungsordner</button>`
+    : "";
+  const linkPost = r.raw.url ? `<a href="${escapeAttr(r.raw.url)}" target="_blank">Original-Posting</a>` : "";
+  const linkApp = r.application_link ? `<a href="${escapeAttr(r.application_link)}" target="_blank">Eingereichte Bewerbung</a>` : "";
+  const isApplied = r.status === "applied" || r.status === "interview" || r.status === "offer";
+  const appliedToggle = `<label class="applied-toggle" onclick="event.stopPropagation()">
+    <input type="checkbox" id="applied-${r.jid}" ${isApplied ? "checked" : ""}
+           onchange="onAppliedToggle('${r.jid}', this, event)">
+    Beworben
+    <input type="url" class="applied-link-input" id="applied-link-${r.jid}"
+           placeholder="optional: Link zur eingereichten Bewerbung"
+           value="${escapeAttr(r.application_link || '')}"
+           ${isApplied ? '' : 'style="display:none;"'}>
+  </label>`;
+  const matchedSk = (scoring.matched_skills || []).map(s => `<code>${escapeHtml(s)}</code>`).join(", ");
+  const missingSk = (scoring.missing_skills || []).map(s => `<code>${escapeHtml(s)}</code>`).join(", ");
+  const flags = (scoring.red_flags || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  const desc = buildDescriptionHtml(r.raw.description, r.jid);
+  const tailorBtn = r.tailored_dir
+    ? `<span class="muted">✔ Bereits getailored - <a href="file://${r.tailored_dir}">Ordner öffnen</a></span>`
+    : `<div class="tailor-form" onclick="event.stopPropagation()">
+         <label><span class="label-text">Starttermin<span class="req-mark">*</span></span>
+           <input type="text" id="start-${r.jid}" placeholder="z. B. ab sofort, 2026-08-01"
+                  oninput="updateTailorBtn('${r.jid}')">
+         </label>
+         <label>Gehaltsvorstellung
+           <input type="text" id="gehalt-${r.jid}" placeholder="optional: z. B. 65.000 EUR brutto/Jahr">
+         </label>
+         <label>Kontakt
+           <input type="text" id="kontakt-${r.jid}" placeholder="optional: z. B. Frau Müller">
+         </label>
+         <button class="action-btn primary" id="tailor-btn-${r.jid}" disabled onclick="createBewerbung('${r.jid}', event)">
+           📄 Bewerbung erstellen
+         </button>
+         <span class="tailor-status" id="tailor-status-${r.jid}" style="display:none;"></span>
+       </div>`;
+  const statusOptions = Object.entries(STATUS_LABELS)
+    .map(([v, lbl]) => `<option value="${v}" ${r.status === v ? "selected" : ""}>${lbl}</option>`)
+    .join("");
+  const statusSelect = `<label class="status-select-wrap" onclick="event.stopPropagation()">
+    Status:
+    <select onchange="changeStatus('${r.jid}', this.value, event)">${statusOptions}</select>
+  </label>`;
+  return `
+    <div class="links">${linkPost} ${linkCv} ${linkAns} ${linkApp} ${folderBtn}</div>
+    <div style="margin-top:6px;">${appliedToggle} ${statusSelect}</div>
+    <div style="margin-top:6px;">${tailorBtn}</div>
+    <h4>Scoring</h4>
+    <div><b>Fit:</b> ${scoring.fit_score || "—"} — ${escapeHtml(scoring.begruendung || "")}</div>
+    <div><b>Matched Skills:</b> ${matchedSk || '<span class="muted">—</span>'}</div>
+    <div><b>Missing Skills:</b> ${missingSk || '<span class="muted">—</span>'}</div>
+    ${flags ? `<div><b>Red Flags:</b><ul>${flags}</ul></div>` : ""}
+    <h4>Notizen
+      <button class="notes-save-btn" onclick="saveNotes('${r.jid}', event)">💾 Speichern</button>
+      <span class="notes-status" id="notes-status-${r.jid}"></span>
+    </h4>
+    <textarea class="notes-edit" id="notes-edit-${r.jid}"
+              placeholder="Freitext-Notizen zur Bewerbung (Recruiter-Gespraech, persoenliche Einschaetzung, Reminder, ...)"
+              onclick="event.stopPropagation()">${escapeHtml(r.notes || "")}</textarea>
+    <h4>Beschreibung</h4>
+    <div style="white-space: pre-wrap; font-size: 13px;">${desc}</div>
+  `;
+}
+
+function escapeHtml(s) {
+  s = String(s || "");
+  return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+
+// Liefert das Datum (YYYY-MM-DD) des ersten "applied"-Eintrags aus status_history,
+// oder "" falls noch nie als "beworben" markiert.
+function appliedDate(r) {
+  const hist = r.status_history || [];
+  for (const h of hist) {
+    if (h.status === "applied" && h.at) return String(h.at).slice(0, 10);
+  }
+  return "";
+}
+
+const DESC_PREVIEW_CHARS = 800;
+function buildDescriptionHtml(desc, jid) {
+  if (!desc) return "<em>keine Beschreibung</em>";
+  const safe = escapeHtml(desc);
+  if (safe.length <= DESC_PREVIEW_CHARS) return safe;
+  const short = safe.slice(0, DESC_PREVIEW_CHARS);
+  return (
+    `<span class="desc-short">${short}…</span>` +
+    `<span class="desc-full" style="display:none;">${safe}</span>` +
+    ` <button class="desc-toggle" onclick="toggleDesc('${jid}', event)">Mehr lesen</button>`
+  );
+}
+function arbeitsmodellBadge(value) {
+  if (!value) return "";
+  return ` <span class="arbeitsmodell-badge arbeitsmodell-${value}">${value}</span>`;
+}
+
+async function logoutFromDashboard(evt) {
+  if (evt) evt.preventDefault();
+  try {
+    const resp = await fetch("/logout", {method: "POST"});
+    const body = await resp.json();
+    window.location.href = body.redirect || "/login";
+  } catch (e) {
+    alert("Logout-Fehler: " + e.message);
+  }
+}
+
+const STATUS_LABELS = {
+  discovered: "entdeckt",
+  shortlisted: "vorgemerkt",
+  tailored: "getailored",
+  applied: "beworben",
+  interview: "eingeladen",
+  offer: "angebot",
+  rejected: "abgelehnt",
+  withdrawn: "zurueckgezogen",
+  declined: "abgewaehlt",
+};
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status;
+}
+
+async function changeStatus(jid, newStatus, evt) {
+  if (evt) evt.stopPropagation();
+  if (!IS_HTTP) {
+    alert("Status aendern geht nur ueber 'bewerber serve' (HTTP).");
+    return;
+  }
+  try {
+    const resp = await fetch("/api/mark", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({job_id: jid, status: newStatus}),
+    });
+    const body = await resp.json();
+    if (!resp.ok) throw new Error(body.error || "unbekannter Fehler");
+    if (STATE.jobs[jid]) {
+      STATE.jobs[jid].status = newStatus;
+      STATE.jobs[jid].status_history = STATE.jobs[jid].status_history || [];
+      STATE.jobs[jid].status_history.push({status: newStatus, at: new Date().toISOString()});
+    }
+    applyFilters();  // Tabelle neu rendern -> Badge + Beworben-Datum aktualisieren
+  } catch (e) {
+    alert("Status-Aenderung fehlgeschlagen: " + e.message);
+  }
+}
+
+const NOTES_PREVIEW_CHARS = 40;
+function notesPreview(notes) {
+  const trimmed = (notes || "").trim();
+  if (!trimmed) return '<span class="muted">—</span>';
+  // Erste Zeile, dann gekuerzt
+  const firstLine = trimmed.split("\n")[0];
+  const truncated = firstLine.length > NOTES_PREVIEW_CHARS
+    ? firstLine.slice(0, NOTES_PREVIEW_CHARS) + "…"
+    : firstLine;
+  return `<span title="${escapeAttr(trimmed)}">${escapeHtml(truncated)}</span>`;
+}
+
+async function saveNotes(jid, evt) {
+  if (evt) evt.stopPropagation();
+  if (!IS_HTTP) {
+    alert("Notizen speichern geht nur ueber 'bewerber serve' (HTTP).");
+    return;
+  }
+  const textarea = document.getElementById("notes-edit-" + jid);
+  const statusEl = document.getElementById("notes-status-" + jid);
+  if (!textarea) return;
+  statusEl.textContent = "speichere ...";
+  statusEl.style.color = "#444";
+  try {
+    const resp = await fetch("/api/notes-set", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({job_id: jid, notes: textarea.value}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "unbekannter Fehler");
+    statusEl.style.color = "#1a5b2b";
+    statusEl.textContent = "✓ gespeichert";
+    // Inline-State aktualisieren, damit die Tabelle (Spalten-Vorschau) sofort konsistent ist
+    if (STATE.jobs[jid]) STATE.jobs[jid].notes = textarea.value;
+    setTimeout(() => { statusEl.textContent = ""; }, 2500);
+    applyFilters();  // Spalten-Vorschau neu rendern
+  } catch (e) {
+    statusEl.style.color = "#c33";
+    statusEl.textContent = "✗ " + e.message;
+  }
+}
+
+function toggleDesc(jid, evt) {
+  evt.stopPropagation();
+  const detail = document.querySelector(`tr[data-jid="${jid}"] + tr.detail`);
+  if (!detail) return;
+  const short = detail.querySelector(".desc-short");
+  const full = detail.querySelector(".desc-full");
+  const btn = detail.querySelector(".desc-toggle");
+  if (!short || !full || !btn) return;
+  const showingFull = full.style.display !== "none";
+  short.style.display = showingFull ? "" : "none";
+  full.style.display = showingFull ? "none" : "";
+  btn.textContent = showingFull ? "Mehr lesen" : "Weniger anzeigen";
+}
+
+const WORKSPACE = "/Users/steve/Documents/Bewerber_Assistent/bewerber";
+const IS_HTTP = window.location.protocol.startsWith("http");
+
+async function apiCall(path, body) {
+  if (!IS_HTTP) {
+    alert("Diese Aktion braucht den HTTP-Server. Starte den Server mit:\n\n  bewerber serve\n\nund öffne dann http://127.0.0.1:<port>/");
+    throw new Error("Static file:// mode - API not available");
+  }
+  const resp = await fetch(path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({error: resp.statusText}));
+    throw new Error(err.error || "API call failed");
+  }
+  return resp.json();
+}
+
+async function onAppliedToggle(jid, checkbox, evt) {
+  if (evt) evt.stopPropagation();
+  const linkInput = document.getElementById("applied-link-" + jid);
+  try {
+    const newStatus = checkbox.checked ? "applied" : "discovered";
+    const payload = {job_id: jid, status: newStatus};
+    if (checkbox.checked && linkInput && linkInput.value.trim()) {
+      payload.application_link = linkInput.value.trim();
+    }
+    await apiCall("/api/mark", payload);
+    // Reload state into STATE so subsequent renders are correct
+    if (linkInput) linkInput.style.display = checkbox.checked ? "inline-block" : "none";
+    // Refresh the row by re-fetching state
+    location.reload();
+  } catch (e) {
+    checkbox.checked = !checkbox.checked;  // revert
+    console.error(e);
+  }
+}
+
+async function openFolder(path, evt) {
+  if (evt) evt.stopPropagation();
+  if (!IS_HTTP) {
+    // Fallback for file:// mode: try direct navigation (works in some browsers/OSes)
+    window.location.href = `file://${path}`;
+    return;
+  }
+  try {
+    await apiCall("/api/open-folder", {path});
+  } catch (e) {
+    console.error("Ordner konnte nicht geöffnet werden:", e);
+    alert("Ordner konnte nicht geöffnet werden: " + e.message);
+  }
+}
+
+function getFormValue(jid, field) {
+  const el = document.getElementById(`${field}-${jid}`);
+  return el ? el.value.trim() : "";
+}
+
+function updateTailorBtn(jid) {
+  const btn = document.getElementById("tailor-btn-" + jid);
+  if (!btn) return;
+  // Starttermin is required (oninput on its field re-runs this)
+  btn.disabled = !getFormValue(jid, "start");
+}
+
+const STATUS_PHASES = [
+  "Profil wird geladen ...",
+  "Lebenslauf wird angepasst (LLM) ...",
+  "Anschreiben wird geschrieben (LLM) ...",
+  "PDFs werden gerendert ...",
+  "Anlagen werden kopiert ...",
+];
+
+async function createBewerbung(jid, evt) {
+  if (evt) evt.stopPropagation();
+  if (!IS_HTTP) {
+    alert("Bewerbung erstellen funktioniert nur, wenn das Dashboard via 'bewerber serve' gestartet wurde (HTTP), nicht via file://.");
+    return;
+  }
+  const start = getFormValue(jid, "start");
+  if (!start) return;
+  const btn = document.getElementById("tailor-btn-" + jid);
+  const statusEl = document.getElementById("tailor-status-" + jid);
+
+  // Lock the form
+  btn.disabled = true;
+  btn.textContent = "⏳ läuft ...";
+  statusEl.style.display = "inline-block";
+  statusEl.style.color = "#444";
+
+  // Cycle status messages so the user knows something is happening
+  let phase = 0;
+  statusEl.textContent = STATUS_PHASES[0];
+  const ticker = setInterval(() => {
+    phase = Math.min(phase + 1, STATUS_PHASES.length - 1);
+    statusEl.textContent = STATUS_PHASES[phase] + " (dauert ~30-60s)";
+  }, 8000);
+
+  try {
+    const body = {
+      job_id: jid,
+      starttermin: start,
+      gehalt: getFormValue(jid, "gehalt") || null,
+      kontakt_name: getFormValue(jid, "kontakt") || null,
+    };
+    const resp = await fetch("/api/tailor", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      throw new Error(data.error || "unbekannter Fehler");
+    }
+    clearInterval(ticker);
+    statusEl.style.color = "#1a5b2b";
+    statusEl.textContent = "✓ Bewerbung erstellt - Dashboard wird neu geladen ...";
+    setTimeout(() => window.location.reload(), 1200);
+  } catch (e) {
+    clearInterval(ticker);
+    statusEl.style.color = "#c33";
+    statusEl.textContent = "✗ Fehlgeschlagen: " + e.message;
+    btn.disabled = false;
+    btn.textContent = "📄 Bewerbung erstellen";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Batch-Tailor: Auswahl per Checkbox + Sammel-Tailor-Lauf
+// ---------------------------------------------------------------------------
+
+const SELECTED = new Set();
+
+function onRowSelectChange(checkbox) {
+  const jid = checkbox.dataset.jid;
+  if (checkbox.checked) SELECTED.add(jid);
+  else SELECTED.delete(jid);
+  refreshActionBar();
+}
+
+function toggleSelectAll(masterCb) {
+  const checked = masterCb.checked;
+  document.querySelectorAll(".row-select").forEach(cb => {
+    if (cb.disabled) return;
+    cb.checked = checked;
+    if (checked) SELECTED.add(cb.dataset.jid);
+    else SELECTED.delete(cb.dataset.jid);
+  });
+  refreshActionBar();
+}
+
+function clearSelection() {
+  SELECTED.clear();
+  document.querySelectorAll(".row-select").forEach(cb => { cb.checked = false; });
+  const master = document.getElementById("select-all");
+  if (master) master.checked = false;
+  refreshActionBar();
+}
+
+function refreshActionBar() {
+  const bar = document.getElementById("batch-action-bar");
+  const count = SELECTED.size;
+  document.getElementById("batch-selected-count").textContent = count;
+  bar.style.display = count > 0 ? "flex" : "none";
+}
+
+function openBatchTailorModal() {
+  if (SELECTED.size === 0) return;
+  if (!IS_HTTP) {
+    alert("Batch-Tailor geht nur ueber 'bewerber serve' (HTTP).");
+    return;
+  }
+  document.getElementById("batch-tailor-jobcount").textContent = SELECTED.size;
+  document.getElementById("batch-tailor-start").value = "";
+  document.getElementById("batch-tailor-gehalt").value = "";
+  document.getElementById("batch-tailor-params-modal").style.display = "block";
+}
+
+function closeBatchTailorParamsModal() {
+  document.getElementById("batch-tailor-params-modal").style.display = "none";
+}
+
+async function startBatchTailor() {
+  const start = document.getElementById("batch-tailor-start").value.trim();
+  if (!start) { alert("Starttermin ist erforderlich."); return; }
+  const gehalt = document.getElementById("batch-tailor-gehalt").value.trim() || null;
+  const jobIds = Array.from(SELECTED);
+  closeBatchTailorParamsModal();
+
+  // Progress-Modal aufbauen
+  const modal = document.getElementById("batch-tailor-progress-modal");
+  const rowsEl = document.getElementById("batch-tailor-rows");
+  const summary = document.getElementById("batch-tailor-summary");
+  const closeBtn = document.getElementById("batch-tailor-close");
+  rowsEl.innerHTML = "";
+  summary.textContent = `0/${jobIds.length} fertig`;
+  closeBtn.disabled = true;
+  jobIds.forEach((jid, i) => {
+    const job = STATE.jobs[jid];
+    const label = job ? `${job.raw.title} - ${job.raw.company}` : `Job ${i+1}`;
+    const row = document.createElement("div");
+    row.className = "batch-row";
+    row.dataset.index = String(i);
+    row.innerHTML = `
+      <span class="icon">⏳</span>
+      <span class="label">${escapeHtml(label)}</span>
+      <div class="bar-wrap"><div class="bar"></div></div>
+    `;
+    rowsEl.appendChild(row);
+  });
+  modal.style.display = "block";
+
+  const resp = await fetch("/api/batch-tailor", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({job_ids: jobIds, starttermin: start, gehalt}),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    alert("Batch-Tailor konnte nicht gestartet werden: " + (body.error || resp.status));
+    modal.style.display = "none";
+    return;
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let done = 0, errors = 0, skipped = 0;
+  while (true) {
+    const {value, done: streamDone} = await reader.read();
+    if (streamDone) break;
+    buffer += decoder.decode(value, {stream: true});
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const ln of lines) {
+      const t = ln.trim();
+      if (!t) continue;
+      let ev;
+      try { ev = JSON.parse(t); } catch (e) { continue; }
+      handleBatchTailorEvent(ev);
+      if (ev.event === "done") done++;
+      if (ev.event === "error") errors++;
+      if (ev.event === "skipped_already_tailored") skipped++;
+      summary.textContent = `${done + errors + skipped}/${jobIds.length} verarbeitet (${done} neu, ${skipped} bereits getailored, ${errors} Fehler)`;
+    }
+  }
+  closeBtn.disabled = false;
+}
+
+function handleBatchTailorEvent(ev) {
+  const rowsEl = document.getElementById("batch-tailor-rows");
+  const row = rowsEl.querySelector(`.batch-row[data-index="${ev.index}"]`);
+  if (!row && ev.event !== "begin" && ev.event !== "complete") return;
+  const bar = row && row.querySelector(".bar");
+  const icon = row && row.querySelector(".icon");
+  const label = row && row.querySelector(".label");
+
+  switch (ev.event) {
+    case "begin":
+    case "complete":
+      return;
+    case "start":
+      if (bar) bar.style.width = "5%";
+      break;
+    case "label":
+      if (label) label.textContent = ev.label;
+      if (bar) bar.style.width = "20%";
+      break;
+    case "done":
+      row.classList.add("done");
+      if (icon) icon.textContent = "✓";
+      break;
+    case "skipped_already_tailored":
+      row.classList.add("done");
+      if (icon) icon.textContent = "⊘";
+      if (label) label.innerHTML = `<span class="muted">${escapeHtml(ev.label)} (bereits getailored)</span>`;
+      break;
+    case "error":
+      row.classList.add("error");
+      if (icon) icon.textContent = "✗";
+      if (label) label.innerHTML = `${escapeHtml(label.textContent)}<div class="err-msg">${escapeHtml(ev.error)}</div>`;
+      break;
+  }
+}
+
+function closeBatchTailorProgressModal() {
+  document.getElementById("batch-tailor-progress-modal").style.display = "none";
+  window.location.reload();
+}
+
+// ---------------------------------------------------------------------------
+// Batch-Add: streamt NDJSON-Events vom Server pro URL
+// ---------------------------------------------------------------------------
+
+async function startBatch() {
+  if (!IS_HTTP) {
+    alert("Batch-Lauf funktioniert nur ueber 'bewerber serve' (HTTP).");
+    return;
+  }
+  const text = (document.getElementById("batch-urls").value || "").trim();
+  const urls = text.split("\n").map(s => s.trim()).filter(Boolean);
+  if (urls.length === 0) {
+    alert("Bitte mindestens eine URL eingeben (pro Zeile).");
+    return;
+  }
+  // Modal aufbauen
+  const modal = document.getElementById("batch-modal");
+  const rowsEl = document.getElementById("batch-rows");
+  const summary = document.getElementById("batch-summary");
+  const closeBtn = document.getElementById("batch-close");
+  rowsEl.innerHTML = "";
+  summary.textContent = `0/${urls.length} fertig`;
+  closeBtn.disabled = true;
+  urls.forEach((_, i) => {
+    const row = document.createElement("div");
+    row.className = "batch-row";
+    row.dataset.index = String(i);
+    row.innerHTML = `
+      <span class="icon">⏳</span>
+      <span class="label">Job ${i + 1}</span>
+      <div class="bar-wrap"><div class="bar"></div></div>
+    `;
+    rowsEl.appendChild(row);
+  });
+  modal.style.display = "block";
+
+  // POST + NDJSON-Stream parsen
+  let done = 0, errors = 0, dupes = 0;
+  const resp = await fetch("/api/batch-add-postings", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({urls}),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    alert("Batch konnte nicht gestartet werden: " + (body.error || resp.status));
+    modal.style.display = "none";
+    return;
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const {value, done: streamDone} = await reader.read();
+    if (streamDone) break;
+    buffer += decoder.decode(value, {stream: true});
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";  // letzte (evtl. unvollstaendige) Zeile zurueckhalten
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let ev;
+      try { ev = JSON.parse(trimmed); } catch (e) { continue; }
+      handleBatchEvent(ev);
+      if (ev.event === "done") done++;
+      if (ev.event === "error") errors++;
+      if (ev.event === "skipped_duplicate") dupes++;
+      summary.textContent = `${done + errors + dupes}/${urls.length} verarbeitet (${done} neu, ${dupes} Duplikate, ${errors} Fehler)`;
+    }
+  }
+  closeBtn.disabled = false;
+}
+
+function handleBatchEvent(ev) {
+  const rowsEl = document.getElementById("batch-rows");
+  const row = rowsEl.querySelector(`.batch-row[data-index="${ev.index}"]`);
+  if (!row && ev.event !== "begin" && ev.event !== "complete") return;
+  const bar = row && row.querySelector(".bar");
+  const icon = row && row.querySelector(".icon");
+  const label = row && row.querySelector(".label");
+
+  switch (ev.event) {
+    case "begin":
+    case "complete":
+      return;
+    case "start":
+      if (bar) bar.style.width = "10%";
+      break;
+    case "phase":
+      if (bar) bar.style.width = ev.phase === "snapshot" ? "35%" : "70%";
+      break;
+    case "extracted":
+      // Hier wechselt das "Job N" Label zum echten Rollennamen
+      if (label) label.textContent = `${ev.rolle} - ${ev.firma}`;
+      if (bar) bar.style.width = "80%";
+      break;
+    case "done":
+      row.classList.add("done");
+      if (icon) icon.textContent = "✓";
+      break;
+    case "error":
+      row.classList.add("error");
+      if (icon) icon.textContent = "✗";
+      if (label) label.innerHTML = `<span title="${escapeAttr(ev.url)}">${escapeHtml(ev.url)}</span><div class="err-msg">${escapeHtml(ev.error)}</div>`;
+      break;
+    case "skipped_duplicate":
+      row.classList.add("done");
+      if (icon) icon.textContent = "⊘";
+      if (label) label.innerHTML = `<span class="muted">${escapeHtml(ev.url)} (bereits erfasst)</span>`;
+      break;
+  }
+}
+
+function closeBatchModal() {
+  document.getElementById("batch-modal").style.display = "none";
+  // Dashboard neu laden, damit die neuen Jobs erscheinen + failed_urls
+  window.location.reload();
+}
+
+async function retryFailed(url, btn) {
+  if (!IS_HTTP) return;
+  btn.disabled = true;
+  btn.textContent = "läuft ...";
+  // Single-URL-Batch starten ueber dieselbe Streaming-API
+  try {
+    const resp = await fetch("/api/batch-add-postings", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({urls: [url]}),
+    });
+    if (!resp.ok) {
+      btn.textContent = "↻ Erneut";
+      btn.disabled = false;
+      alert("Retry fehlgeschlagen: " + resp.status);
+      return;
+    }
+    // Stream lesen aber nicht visualisieren - am Ende reloaden
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let lastEvent = null;
+    let buffer = "";
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const ln of lines) {
+        const t = ln.trim();
+        if (!t) continue;
+        try { lastEvent = JSON.parse(t); } catch (e) {}
+      }
+    }
+    window.location.reload();
+  } catch (e) {
+    btn.textContent = "↻ Erneut";
+    btn.disabled = false;
+    alert("Retry-Fehler: " + e.message);
+  }
+}
+
+async function removeFailed(url, btn) {
+  if (!IS_HTTP) return;
+  btn.disabled = true;
+  try {
+    const resp = await fetch("/api/failed-urls/remove", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({url}),
+    });
+    if (!resp.ok) throw new Error("Status " + resp.status);
+    btn.closest(".failed-url-row").remove();
+  } catch (e) {
+    btn.disabled = false;
+    alert("Konnte nicht entfernen: " + e.message);
+  }
+}
+
+async function clearAllFailed() {
+  if (!IS_HTTP) return;
+  if (!confirm("Alle fehlgeschlagenen URLs aus der Liste entfernen?")) return;
+  try {
+    const resp = await fetch("/api/failed-urls/clear", {method: "POST"});
+    if (!resp.ok) throw new Error("Status " + resp.status);
+    window.location.reload();
+  } catch (e) {
+    alert("Fehler: " + e.message);
+  }
+}
+
+async function addPostingFromUrl() {
+  const urlEl = document.getElementById("add-url");
+  const firmaEl = document.getElementById("add-firma");
+  const rolleEl = document.getElementById("add-rolle");
+  const btn = document.getElementById("add-btn");
+  const statusEl = document.getElementById("add-status");
+  const url = urlEl.value.trim();
+  const firma = firmaEl.value.trim();
+  const rolle = rolleEl.value.trim();
+  if (!url || !firma || !rolle) {
+    statusEl.style.color = "#c33";
+    statusEl.textContent = "URL, Firma und Rolle sind erforderlich.";
+    statusEl.style.display = "block";
+    return;
+  }
+  if (!IS_HTTP) {
+    alert("Manuelles Hinzufuegen funktioniert nur via 'bewerber serve' (HTTP).");
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "⏳ scrapt + scort ...";
+  statusEl.style.color = "#444";
+  statusEl.textContent = "Snapshot + Scoring laufen ... ca. 10-15s";
+  statusEl.style.display = "block";
+
+  try {
+    const resp = await fetch("/api/add-posting", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({url, firma, rolle}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "unbekannter Fehler");
+    statusEl.style.color = "#1a5b2b";
+    statusEl.textContent = `✓ Hinzugefuegt (Fit-Score ${data.fit_score}). Dashboard wird neu geladen ...`;
+    setTimeout(() => window.location.reload(), 1200);
+  } catch (e) {
+    statusEl.style.color = "#c33";
+    statusEl.textContent = "✗ " + e.message;
+    btn.disabled = false;
+    btn.textContent = "+ Ausschreibung hinzufuegen";
+  }
+}
+
+document.querySelectorAll("th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const k = th.dataset.sort;
+    currentSort = { key: k, dir: currentSort.key === k ? -currentSort.dir : (k === "score" ? -1 : 1) };
+    applyFilters();
+  });
+});
+[q, fStatus, fScore, fBoard].forEach(el => el.addEventListener("input", applyFilters));
+applyFilters();
+</script>
+</body>
+</html>

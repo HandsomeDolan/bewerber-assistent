@@ -1368,7 +1368,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         files = []
         for p in sorted(td.rglob("*")):
-            if p.is_file():
+            if p.is_file() and not p.is_symlink():
                 files.append({"name": str(p.relative_to(td)), "size": p.stat().st_size})
         self._send_json(200, {"files": files})
 
@@ -1403,7 +1403,7 @@ class _Handler(BaseHTTPRequestHandler):
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for p in sorted(td.rglob("*")):
-                if p.is_file():
+                if p.is_file() and not p.is_symlink():
                     zf.write(p, arcname=str(p.relative_to(td)))
         data = buf.getvalue()
         self.send_response(200)
