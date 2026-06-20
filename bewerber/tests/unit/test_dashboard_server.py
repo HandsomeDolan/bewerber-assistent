@@ -1118,6 +1118,14 @@ def test_get_login_page_renders(running_server):
     assert "Passwort" in body
 
 
+def test_login_page_has_register_toggle(running_server):
+    code, html = _get(running_server, "/login", with_session=False)
+    assert code == 200
+    assert 'id="register-form"' in html
+    assert 'id="login-form"' in html
+    assert "Einladungs-Code" in html
+
+
 def test_post_login_sets_session_cookie(running_server):
     code, body = _post_json(
         running_server, "/login",
