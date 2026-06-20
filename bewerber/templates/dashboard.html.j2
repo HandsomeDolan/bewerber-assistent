@@ -449,10 +449,12 @@ function toggleDetail(tr, r) {
 
 function detailHtml(r) {
   const scoring = r.scoring || {};
-  const linkCv = r.tailored_dir ? `<a href="file://${r.tailored_dir}/lebenslauf.pdf">Lebenslauf PDF</a>` : "";
-  const linkAns = r.tailored_dir ? `<a href="file://${r.tailored_dir}/anschreiben.pdf">Anschreiben PDF</a>` : "";
+  const linkCv = r.tailored_dir ? `<a href="/api/download?job_id=${encodeURIComponent(r.jid)}&file=lebenslauf.pdf">Lebenslauf PDF</a>` : "";
+  const linkAns = r.tailored_dir ? `<a href="/api/download?job_id=${encodeURIComponent(r.jid)}&file=anschreiben.pdf">Anschreiben PDF</a>` : "";
   const folderBtn = r.tailored_dir
-    ? `<button class="folder-btn" onclick="openFolder('${escapeAttr(r.tailored_dir)}', event)">📂 Bewerbungsordner</button>`
+    ? `<a class="folder-btn" href="/api/download-zip?job_id=${encodeURIComponent(r.jid)}">&#x2b07; Alles als ZIP</a>
+       <button class="folder-btn" onclick="loadJobFiles('${r.jid}', event)">&#x1f4c4; Dateien anzeigen</button>
+       <div class="job-files" id="files-${r.jid}" style="margin-top:6px; font-size:12px;"></div>`
     : "";
   // Briefing-Button nur fuer Jobs mit Status 'applied' oder weiter (interview/offer)
   // und nur wenn ein Tailored-Dir existiert (Briefing wird dort abgelegt).
@@ -478,7 +480,7 @@ function detailHtml(r) {
   const flags = (scoring.red_flags || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
   const desc = buildDescriptionHtml(r.raw.description, r.jid);
   const tailorBtn = r.tailored_dir
-    ? `<span class="muted">✔ Bereits getailored - <a href="file://${r.tailored_dir}">Ordner öffnen</a></span>`
+    ? `<span class="muted">&#x2714; Bereits getailored</span>`
     : `<div class="tailor-form" onclick="event.stopPropagation()">
          <label><span class="label-text">Starttermin<span class="req-mark">*</span></span>
            <input type="text" id="start-${r.jid}" placeholder="z. B. ab sofort, 2026-08-01"
@@ -581,7 +583,8 @@ async function createBriefing(jid, evt) {
     const body = await resp.json();
     if (!resp.ok) throw new Error(body.error || "unbekannter Fehler");
     statusEl.style.color = "#1a5b2b";
-    statusEl.innerHTML = `✓ <a href="file://${escapeAttr(body.pdf_path)}" target="_blank">PDF oeffnen</a> · <a href="#" onclick="openFolder('${escapeAttr(body.briefing_dir)}', event); return false;">📂 briefing/-Ordner</a>`;
+    const briefingPdfName = body.briefing_pdf_name || (body.pdf_path ? body.pdf_path.split("/").pop() : "briefing.pdf");
+    statusEl.innerHTML = `&#x2713; <a href="/api/download?job_id=${encodeURIComponent(jid)}&file=briefing/${encodeURIComponent(briefingPdfName)}" target="_blank">Briefing PDF</a>`;
     btn.disabled = false;
     btn.textContent = "🔁 Neues Briefing";
   } catch (e) {
@@ -659,6 +662,21 @@ async function pollDiscoverStatus(jobId) {
     }
   };
   tick();
+}
+
+async function loadJobFiles(jid, evt) {
+  if (evt) evt.preventDefault();
+  const box = document.getElementById("files-" + jid);
+  box.textContent = "Lade ...";
+  try {
+    const resp = await fetch("/api/job-files?job_id=" + encodeURIComponent(jid));
+    const body = await resp.json();
+    if (!resp.ok) { box.textContent = body.error || "Fehler"; return; }
+    if (!body.files.length) { box.textContent = "(keine Dateien)"; return; }
+    box.innerHTML = body.files.map(f =>
+      `<a href="/api/download?job_id=${encodeURIComponent(jid)}&file=${encodeURIComponent(f.name)}">${f.name}</a> <span class="muted">(${Math.round(f.size/1024)} KB)</span>`
+    ).join("<br>");
+  } catch (e) { box.textContent = "Netzfehler: " + e.message; }
 }
 
 async function logoutFromDashboard(evt) {
@@ -775,7 +793,7 @@ const IS_HTTP = window.location.protocol.startsWith("http");
 async function apiCall(path, body) {
   if (!IS_HTTP) {
     alert("Diese Aktion braucht den HTTP-Server. Starte den Server mit:\n\n  bewerber serve\n\nund öffne dann http://127.0.0.1:<port>/");
-    throw new Error("Static file:// mode - API not available");
+    throw new Error("Static mode (kein HTTP-Server) - API nicht verfuegbar");
   }
   const resp = await fetch(path, {
     method: "POST",
@@ -812,8 +830,8 @@ async function onAppliedToggle(jid, checkbox, evt) {
 async function openFolder(path, evt) {
   if (evt) evt.stopPropagation();
   if (!IS_HTTP) {
-    // Fallback for file:// mode: try direct navigation (works in some browsers/OSes)
-    window.location.href = `file://${path}`;
+    // Fallback for static mode: open-folder requires HTTP server
+    console.warn("openFolder: HTTP server required, path =", path);
     return;
   }
   try {
@@ -847,7 +865,7 @@ const STATUS_PHASES = [
 async function createBewerbung(jid, evt) {
   if (evt) evt.stopPropagation();
   if (!IS_HTTP) {
-    alert("Bewerbung erstellen funktioniert nur, wenn das Dashboard via 'bewerber serve' gestartet wurde (HTTP), nicht via file://.");
+    alert("Bewerbung erstellen funktioniert nur, wenn das Dashboard via 'bewerber serve' gestartet wurde (HTTP).");
     return;
   }
   const start = getFormValue(jid, "start");

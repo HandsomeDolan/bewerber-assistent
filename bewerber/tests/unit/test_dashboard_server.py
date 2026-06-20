@@ -1790,3 +1790,11 @@ def test_download_zip_excludes_symlinks(running_server):
     resp = urllib.request.urlopen(req, timeout=5)
     zf = zipfile.ZipFile(io.BytesIO(resp.read()))
     assert "leak.txt" not in zf.namelist()
+
+
+def test_dashboard_uses_download_not_fileurl(running_server):
+    code, html = _get(running_server, "/")
+    assert code == 200
+    assert "/api/download-zip?job_id=" in html
+    # Keine file://-Links mehr (funktionieren remote nicht)
+    assert "file://" not in html
