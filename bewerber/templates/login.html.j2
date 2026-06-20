@@ -43,23 +43,22 @@
 <div class="card">
   <h1>Bewerber-Assistent</h1>
   <p class="subtitle">Bitte einloggen.</p>
-  <label>Vorname
-    <input type="text" id="vorname" autocomplete="given-name" autofocus required>
+  <label>Username
+    <input type="text" id="username" autocomplete="username" autofocus required>
   </label>
-  <label>Nachname
-    <input type="text" id="nachname" autocomplete="family-name" required>
+  <label>Passwort
+    <input type="password" id="passwort" autocomplete="current-password" required>
   </label>
   <button id="login-btn" onclick="login()">Einloggen</button>
   <div id="error"></div>
   <p class="hint">
-    Login gilt 30 Tage (Cookie). Daten bleiben lokal. Single-User-Setup
-    aktuell; Multi-User folgt mit dem RPi-Schritt.
+    Login gilt 30 Tage (Cookie). Daten bleiben lokal.
   </p>
 </div>
 <script>
-const vornameEl = document.getElementById("vorname");
-const nachnameEl = document.getElementById("nachname");
-[vornameEl, nachnameEl].forEach(el => {
+const usernameEl = document.getElementById("username");
+const passwortEl = document.getElementById("passwort");
+[usernameEl, passwortEl].forEach(el => {
   el.addEventListener("keydown", e => { if (e.key === "Enter") login(); });
 });
 function showError(msg) {
@@ -68,10 +67,10 @@ function showError(msg) {
   el.style.display = "block";
 }
 async function login() {
-  const vorname = vornameEl.value.trim();
-  const nachname = nachnameEl.value.trim();
-  if (!vorname || !nachname) {
-    showError("Vorname und Nachname sind erforderlich.");
+  const username = usernameEl.value.trim();
+  const passwort = passwortEl.value;
+  if (!username || !passwort) {
+    showError("Username und Passwort sind erforderlich.");
     return;
   }
   const btn = document.getElementById("login-btn");
@@ -81,7 +80,7 @@ async function login() {
     const resp = await fetch("/login", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({vorname, nachname}),
+      body: JSON.stringify({username, passwort}),
     });
     const body = await resp.json();
     if (!resp.ok) { showError(body.error || "Login fehlgeschlagen"); btn.disabled = false; btn.textContent = "Einloggen"; return; }

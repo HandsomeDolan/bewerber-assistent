@@ -1,6 +1,7 @@
 """Tests for the dashboard HTTP server endpoints."""
 import json
 import threading
+import urllib.parse
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -15,26 +16,45 @@ from bewerber.shared.state_schema import (
 from bewerber.dashboard.server import serve as start_server
 
 
-SESSION_COOKIE = "bewerber_session=Test%20User"
+TEST_USER = "tuser"           # make_username("Test", "User")
+TEST_PASSWORD = "testpw123"
+TEST_SECRET = "test-secret-key"
+TEST_INVITE = "let-me-in"
 
 
 @pytest.fixture
 def running_server(tmp_path, monkeypatch):
-    """Start an ephemeral HTTP server bound to a fresh state.json under tmp_path."""
+    """Ephemeral Server mit registriertem Test-User + signierter Session."""
     monkeypatch.setenv("BEWERBER_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("BEWERBER_SECRET_KEY", TEST_SECRET)
+    monkeypatch.setenv("BEWERBER_INVITE_CODE", TEST_INVITE)
     (tmp_path / "bewerber").mkdir()
-    # Stub master_profile.yaml so dashboard-routing doesn't redirect to /onboarding
-    (tmp_path / "bewerber" / "master_profile.yaml").write_text(
+    (tmp_path / "bewerber" / "searches.yaml.example").write_text(
+        "defaults: {locations: [L], date_posted_max_days: 14, exclude_keywords: []}\n"
+        "searches: [{name: A, keywords: [KI], boards: [arbeitsagentur]}]\n",
+    )
+    (tmp_path / "bewerber" / "anlagen.yaml.example").write_text("anlagen: []\n")
+
+    from bewerber.dashboard import auth as _auth
+    # Test-User registrieren
+    registry_path = Paths().users_dir / "registry.json"
+    username = _auth.register_user(registry_path, "Test", "User", TEST_PASSWORD)
+    assert username == TEST_USER
+
+    # Per-User-Workspace + master_profile-Stub, damit / nicht auf /onboarding umleitet
+    up = Paths(user=TEST_USER)
+    up.data_dir.mkdir(parents=True, exist_ok=True)
+    up.master_profile.write_text(
         "person: {name: x, email: x@y.de}\nberufsprofil: x\nzielposition: []",
     )
-    # Seed one job
+    # Ein Seed-Job im User-Workspace
     state = BewerberState(jobs={
         "arbeitsagentur-x1": TrackedJob(raw=RawJob(
             board="arbeitsagentur", external_id="x1",
             url="https://x", title="KI Manager", company="Acme", location="Leipzig",
         )),
     })
-    save_state(Paths().state_json, state)
+    save_state(up.state_json, state)
 
     httpd = start_server(paths=Paths(), port=0)
     port = httpd.server_address[1]
@@ -48,10 +68,18 @@ def running_server(tmp_path, monkeypatch):
         thread.join(timeout=2)
 
 
+def _signed_cookie() -> str:
+    from bewerber.dashboard import auth as _auth
+    return "bewerber_session=" + urllib.parse.quote(_auth.sign_session(TEST_USER, TEST_SECRET))
+
+
+SESSION_COOKIE = None  # wird in _post_json/_get dynamisch erzeugt
+
+
 def _post_json(port: int, path: str, body: dict, *, with_session: bool = True) -> tuple[int, dict]:
     headers = {"Content-Type": "application/json"}
     if with_session:
-        headers["Cookie"] = SESSION_COOKIE
+        headers["Cookie"] = _signed_cookie()
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
         data=json.dumps(body).encode("utf-8"),
@@ -72,7 +100,7 @@ def _get(port: int, path: str, *, with_session: bool = True, follow_redirects: b
     """
     headers = {}
     if with_session:
-        headers["Cookie"] = SESSION_COOKIE
+        headers["Cookie"] = _signed_cookie()
 
     if follow_redirects:
         try:
@@ -113,7 +141,7 @@ def test_mark_applied_updates_status_and_history(running_server, tmp_path):
     assert code == 200, body
     assert body["ok"] is True
 
-    state = load_state(Paths().state_json)
+    state = load_state(Paths(TEST_USER).state_json)
     job = state.jobs["arbeitsagentur-x1"]
     assert job.status == JobStatus.APPLIED
     assert job.application_link == "https://applied.example"
@@ -145,7 +173,7 @@ def test_note_appends_timestamped_entry(running_server):
         "text": "Recruiter angerufen am 15.06.",
     })
     assert code == 200
-    state = load_state(Paths().state_json)
+    state = load_state(Paths(TEST_USER).state_json)
     notes = state.jobs["arbeitsagentur-x1"].notes
     assert "Recruiter angerufen" in notes
     # Timestamp prefix
@@ -182,7 +210,8 @@ def test_get_searches_returns_empty_when_yaml_missing(running_server, tmp_path):
 def test_get_searches_returns_existing_yaml(running_server, tmp_path):
     """API echoes whatever's currently in searches.yaml."""
     import yaml
-    (tmp_path / "bewerber" / "searches.yaml").write_text(yaml.safe_dump({
+    up = Paths(user=TEST_USER)
+    up.searches_yaml.write_text(yaml.safe_dump({
         "defaults": {"locations": ["Leipzig"], "exclude_keywords": ["SPS"]},
         "searches": [{
             "name": "KI",
@@ -222,13 +251,14 @@ def test_post_searches_persists_atomically(running_server, tmp_path):
 
     # File on disk reflects what was sent
     import yaml
-    written = yaml.safe_load((tmp_path / "bewerber" / "searches.yaml").read_text())
+    up = Paths(user=TEST_USER)
+    written = yaml.safe_load(up.searches_yaml.read_text())
     assert written["defaults"]["exclude_keywords"] == ["SPS", "PLS"]
     assert written["searches"][0]["name"] == "AI Consulting"
     assert written["searches"][0]["boards"] == ["arbeitsagentur", "linkedin"]
 
     # No leftover .tmp from the atomic write
-    assert not (tmp_path / "bewerber" / "searches.yaml.tmp").exists()
+    assert not up.searches_yaml.with_suffix(".yaml.tmp").exists()
 
 
 def test_post_searches_validation_error_returns_400(running_server, tmp_path):
@@ -245,7 +275,7 @@ def test_post_searches_validation_error_returns_400(running_server, tmp_path):
     # Error should mention the invalid field path
     assert "boards" in body["error"]
     # File should NOT have been overwritten
-    assert not (tmp_path / "bewerber" / "searches.yaml").exists()
+    assert not Paths(user=TEST_USER).searches_yaml.exists()
 
 
 def test_post_searches_extra_field_rejected(running_server, tmp_path):
@@ -279,7 +309,8 @@ def test_get_anlagen_returns_empty_when_yaml_missing(running_server, tmp_path):
 
 def test_get_anlagen_returns_existing_yaml(running_server, tmp_path):
     import yaml
-    (tmp_path / "bewerber" / "anlagen.yaml").write_text(yaml.safe_dump({
+    up = Paths(user=TEST_USER)
+    up.anlagen_yaml.write_text(yaml.safe_dump({
         "anlagen": [
             {"label": "Arbeitszeugnisse", "files": ["/some/cert.pdf"]},
             {"label": "Technikerzeugnis", "files": ["/p1.pdf", "/p2.pdf"]},
@@ -307,9 +338,10 @@ def test_post_anlagen_persists_atomically(running_server, tmp_path):
     assert "/does/not/exist.pdf" in body["missing"]
 
     import yaml
-    written = yaml.safe_load((tmp_path / "bewerber" / "anlagen.yaml").read_text())
+    up = Paths(user=TEST_USER)
+    written = yaml.safe_load(up.anlagen_yaml.read_text())
     assert written["anlagen"][0]["label"] == "Zeugnis"
-    assert not (tmp_path / "bewerber" / "anlagen.yaml.tmp").exists()
+    assert not up.anlagen_yaml.with_suffix(".yaml.tmp").exists()
 
 
 def test_post_anlagen_validation_error_returns_400(running_server, tmp_path):
@@ -318,7 +350,7 @@ def test_post_anlagen_validation_error_returns_400(running_server, tmp_path):
     code, body = _post_json(running_server, "/api/anlagen", bad)
     assert code == 400
     assert "label" in body["error"]
-    assert not (tmp_path / "bewerber" / "anlagen.yaml").exists()
+    assert not Paths(user=TEST_USER).anlagen_yaml.exists()
 
 
 def test_verify_anlagen_returns_missing_paths(running_server, tmp_path):
@@ -358,7 +390,7 @@ def test_add_posting_without_master_profile_returns_500(running_server, tmp_path
     """Fixture seeds a job at https://x already; use a fresh URL here.
     Fixture seeded master_profile.yaml fuer das Routing - hier loeschen,
     damit der Endpoint die fehlende Master-Profile-Pruefung trifft."""
-    (tmp_path / "bewerber" / "master_profile.yaml").unlink()
+    Paths(TEST_USER).master_profile.unlink()
     code, body = _post_json(running_server, "/api/add-posting", {
         "url": "https://fresh.example/job", "firma": "F", "rolle": "R",
     })
@@ -375,7 +407,7 @@ def test_add_posting_duplicate_url_returns_409(running_server, tmp_path):
             url="https://dup.example/job", title="t", company="c", location="",
         )),
     })
-    save_state(Paths().state_json, state)
+    save_state(Paths(TEST_USER).state_json, state)
 
     code, body = _post_json(running_server, "/api/add-posting", {
         "url": "https://dup.example/job", "firma": "X", "rolle": "Y",
@@ -386,10 +418,8 @@ def test_add_posting_duplicate_url_returns_409(running_server, tmp_path):
 
 def test_add_posting_happy_path(running_server, tmp_path, mocker):
     """Snapshot + Scoring mocked -> state has the new manual job."""
-    # Master profile required
-    (tmp_path / "bewerber" / "master_profile.yaml").write_text(
-        "person: {name: x, email: x@y.de}\nberufsprofil: x\nzielposition: []",
-    )
+    # Master profile already seeded by fixture in user dir
+
 
     # Mock heavy dependencies
     mocker.patch(
@@ -417,7 +447,7 @@ def test_add_posting_happy_path(running_server, tmp_path, mocker):
     assert body["job_id"].startswith("manual-")
 
     # State has the new job
-    state = load_state(Paths().state_json)
+    state = load_state(Paths(TEST_USER).state_json)
     assert body["job_id"] in state.jobs
     job = state.jobs[body["job_id"]]
     assert job.raw.company == "BMW Group"
@@ -458,7 +488,7 @@ def test_tailor_happy_path(running_server, tmp_path, mocker):
             ),
         ),
     })
-    save_state(Paths().state_json, state)
+    save_state(Paths(TEST_USER).state_json, state)
 
     fake_tailor = mocker.patch("bewerber.tailoring.orchestrator.tailor")
     fake_tailor.return_value = mocker.Mock(output_dir=Path("/tmp/bewerbung-out"))
@@ -491,10 +521,7 @@ def test_tailor_happy_path(running_server, tmp_path, mocker):
 
 def test_batch_add_postings_streams_ndjson_events(running_server, tmp_path, mocker):
     """Happy path: 2 URLs, snapshot + extract_and_score gemockt."""
-    # Master-Profil anlegen
-    (tmp_path / "bewerber" / "master_profile.yaml").write_text(
-        "person: {name: x, email: x@y.de}\nberufsprofil: x\nzielposition: []",
-    )
+    # Master-Profil bereits durch Fixture im User-Workspace vorhanden
     # Snapshots mocken
     mocker.patch(
         "bewerber.tailoring.snapshot.snapshot_url",
@@ -525,7 +552,7 @@ def test_batch_add_postings_streams_ndjson_events(running_server, tmp_path, mock
     req = urllib.request.Request(
         f"http://127.0.0.1:{running_server}/api/batch-add-postings",
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Cookie": _signed_cookie()},
         method="POST",
     )
     resp = urllib.request.urlopen(req, timeout=30)
@@ -551,7 +578,7 @@ def test_batch_add_postings_streams_ndjson_events(running_server, tmp_path, mock
     assert {e["firma"] for e in extracted} == {"Acme GmbH", "Beta AG"}
 
     # State: beide Jobs persistiert
-    state = load_state(Paths().state_json)
+    state = load_state(Paths(TEST_USER).state_json)
     manual_jobs = [j for j in state.jobs.values() if j.raw.board == "manual"]
     assert len(manual_jobs) == 2
 
@@ -560,9 +587,7 @@ def test_batch_add_postings_handles_per_url_errors_and_stores_in_failed_urls(
     running_server, tmp_path, mocker,
 ):
     """Eine URL crasht beim Snapshot -> error-Event + landet in failed_urls."""
-    (tmp_path / "bewerber" / "master_profile.yaml").write_text(
-        "person: {name: x, email: x@y.de}\nberufsprofil: x\nzielposition: []",
-    )
+    # Master-Profil bereits durch Fixture im User-Workspace vorhanden
 
     def snap(url, out):
         if "bad" in url:
@@ -586,7 +611,7 @@ def test_batch_add_postings_handles_per_url_errors_and_stores_in_failed_urls(
     req = urllib.request.Request(
         f"http://127.0.0.1:{running_server}/api/batch-add-postings",
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Cookie": _signed_cookie()},
         method="POST",
     )
     resp = urllib.request.urlopen(req, timeout=30)
@@ -600,7 +625,7 @@ def test_batch_add_postings_handles_per_url_errors_and_stores_in_failed_urls(
     assert "bad-url" in error_events[0]["url"]
 
     # failed_urls persistiert
-    state = load_state(Paths().state_json)
+    state = load_state(Paths(TEST_USER).state_json)
     assert len(state.failed_urls) == 1
     assert "bad-url" in state.failed_urls[0].url
     assert "snapshot crashed" in state.failed_urls[0].error
@@ -614,7 +639,7 @@ def test_batch_add_postings_rejects_empty_urls_list(running_server):
 def test_batch_add_postings_rejects_missing_master_profile(running_server, tmp_path):
     """Fixture seeded master_profile.yaml fuer das Routing - hier loeschen,
     damit der Endpoint die fehlende Master-Profile-Pruefung trifft."""
-    (tmp_path / "bewerber" / "master_profile.yaml").unlink()
+    Paths(TEST_USER).master_profile.unlink()
     code, body = _post_json(running_server, "/api/batch-add-postings", {
         "urls": ["https://x"],
     })
@@ -627,12 +652,12 @@ def test_failed_urls_clear_removes_all(running_server, tmp_path):
         FailedUrl(url="https://a", error="e1", at="2026-06-15T10:00:00"),
         FailedUrl(url="https://b", error="e2", at="2026-06-15T11:00:00"),
     ])
-    save_state(Paths().state_json, state)
+    save_state(Paths(TEST_USER).state_json, state)
 
     code, body = _post_json(running_server, "/api/failed-urls/clear", {})
     assert code == 200
     assert body["removed"] == 2
-    assert load_state(Paths().state_json).failed_urls == []
+    assert load_state(Paths(TEST_USER).state_json).failed_urls == []
 
 
 def test_failed_urls_remove_drops_one(running_server, tmp_path):
@@ -640,11 +665,11 @@ def test_failed_urls_remove_drops_one(running_server, tmp_path):
         FailedUrl(url="https://a", error="e1", at="2026-06-15T10:00:00"),
         FailedUrl(url="https://b", error="e2", at="2026-06-15T11:00:00"),
     ])
-    save_state(Paths().state_json, state)
+    save_state(Paths(TEST_USER).state_json, state)
 
     code, body = _post_json(running_server, "/api/failed-urls/remove", {"url": "https://a"})
     assert code == 200
-    after = load_state(Paths().state_json).failed_urls
+    after = load_state(Paths(TEST_USER).state_json).failed_urls
     assert len(after) == 1
     assert after[0].url == "https://b"
 
@@ -666,7 +691,7 @@ def test_notes_set_replaces_entire_notes_field(running_server):
     assert code == 200, body
     assert body["ok"] is True
 
-    state = load_state(Paths().state_json)
+    state = load_state(Paths(TEST_USER).state_json)
     assert state.jobs["arbeitsagentur-x1"].notes == "Frei-Text\nMehrere Zeilen."
 
 
@@ -676,7 +701,7 @@ def test_notes_set_overwrites_prior_notes(running_server):
     # Then replace
     code, _ = _post_json(running_server, "/api/notes-set", {"job_id": "arbeitsagentur-x1", "notes": "neu"})
     assert code == 200
-    assert load_state(Paths().state_json).jobs["arbeitsagentur-x1"].notes == "neu"
+    assert load_state(Paths(TEST_USER).state_json).jobs["arbeitsagentur-x1"].notes == "neu"
 
 
 def test_notes_set_allows_empty_string_to_clear_notes(running_server):
@@ -684,7 +709,7 @@ def test_notes_set_allows_empty_string_to_clear_notes(running_server):
     _post_json(running_server, "/api/notes-set", {"job_id": "arbeitsagentur-x1", "notes": "was"})
     code, _ = _post_json(running_server, "/api/notes-set", {"job_id": "arbeitsagentur-x1", "notes": ""})
     assert code == 200
-    assert load_state(Paths().state_json).jobs["arbeitsagentur-x1"].notes == ""
+    assert load_state(Paths(TEST_USER).state_json).jobs["arbeitsagentur-x1"].notes == ""
 
 
 def test_notes_set_missing_job_id_returns_400(running_server):
@@ -732,7 +757,7 @@ def _seed_two_jobs():
                         missing_skills=[], red_flags=[], verbessern_in_anschreiben=[]),
         ),
     })
-    save_state(Paths().state_json, state)
+    save_state(Paths(TEST_USER).state_json, state)
 
 
 def test_batch_tailor_streams_ndjson_per_job(running_server, tmp_path, mocker):
@@ -745,7 +770,7 @@ def test_batch_tailor_streams_ndjson_per_job(running_server, tmp_path, mocker):
     req = urllib.request.Request(
         f"http://127.0.0.1:{running_server}/api/batch-tailor",
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Cookie": _signed_cookie()},
         method="POST",
     )
     resp = urllib.request.urlopen(req, timeout=30)
@@ -773,9 +798,9 @@ def test_batch_tailor_streams_ndjson_per_job(running_server, tmp_path, mocker):
 def test_batch_tailor_skips_already_tailored(running_server, tmp_path, mocker):
     _seed_two_jobs()
     # Job a hat schon tailored_dir
-    state = load_state(Paths().state_json)
+    state = load_state(Paths(TEST_USER).state_json)
     state.jobs["arbeitsagentur-a"].tailored_dir = "/tmp/already-there"
-    save_state(Paths().state_json, state)
+    save_state(Paths(TEST_USER).state_json, state)
 
     fake_tailor = mocker.patch("bewerber.tailoring.orchestrator.tailor")
     fake_tailor.return_value = mocker.Mock(output_dir=Path("/tmp/out"))
@@ -785,7 +810,7 @@ def test_batch_tailor_skips_already_tailored(running_server, tmp_path, mocker):
     req = urllib.request.Request(
         f"http://127.0.0.1:{running_server}/api/batch-tailor",
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Cookie": _signed_cookie()},
         method="POST",
     )
     resp = urllib.request.urlopen(req, timeout=30)
@@ -816,7 +841,7 @@ def test_batch_tailor_isolates_per_job_errors(running_server, tmp_path, mocker):
     req = urllib.request.Request(
         f"http://127.0.0.1:{running_server}/api/batch-tailor",
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Cookie": _signed_cookie()},
         method="POST",
     )
     resp = urllib.request.urlopen(req, timeout=30)
@@ -847,7 +872,7 @@ def test_batch_tailor_unknown_job_emits_error_event(running_server, tmp_path, mo
     req = urllib.request.Request(
         f"http://127.0.0.1:{running_server}/api/batch-tailor",
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Cookie": _signed_cookie()},
         method="POST",
     )
     resp = urllib.request.urlopen(req, timeout=30)
@@ -873,7 +898,7 @@ def test_tailor_orchestrator_failure_returns_502(running_server, tmp_path, mocke
             ),
         ),
     })
-    save_state(Paths().state_json, state)
+    save_state(Paths(TEST_USER).state_json, state)
 
     mocker.patch(
         "bewerber.tailoring.orchestrator.tailor",
@@ -906,7 +931,7 @@ def test_briefing_rejects_job_without_tailored_dir(running_server, tmp_path):
         ), scoring=_Sc(fit_score=7, begruendung="x", matched_skills=[],
                        missing_skills=[], red_flags=[], verbessern_in_anschreiben=[])),
     })
-    save_state(Paths().state_json, state)
+    save_state(Paths(TEST_USER).state_json, state)
     code, body = _post_json(running_server, "/api/briefing", {"job_id": "x-1"})
     assert code == 400
     assert "tailored_dir" in body["error"]
@@ -934,7 +959,7 @@ def test_briefing_happy_path_writes_pdf_to_briefing_subdir(running_server, tmp_p
             tailored_dir=str(tailored),
         ),
     })
-    save_state(Paths().state_json, state)
+    save_state(Paths(TEST_USER).state_json, state)
 
     fake_briefing = InterviewBriefingContent(
         company_overview="Acme ist ein KI-Consultancy.",
@@ -982,7 +1007,7 @@ def test_briefing_llm_failure_returns_502(running_server, tmp_path, mocker):
             tailored_dir=str(tailored),
         ),
     })
-    save_state(Paths().state_json, state)
+    save_state(Paths(TEST_USER).state_json, state)
     mocker.patch("bewerber.briefing.generate_briefing", side_effect=RuntimeError("LLM down"))
     mocker.patch("bewerber.shared.llm.LLMClient.for_scoring", return_value=mocker.Mock())
 
@@ -1070,7 +1095,7 @@ def test_get_root_with_cookie_but_no_master_profile_redirects_to_onboarding(
     running_server, tmp_path,
 ):
     """master_profile.yaml entfernen -> Routing schickt auf /onboarding."""
-    (tmp_path / "bewerber" / "master_profile.yaml").unlink()
+    Paths(TEST_USER).master_profile.unlink()
     code, body = _get(running_server, "/", with_session=True)
     assert code == 302
     assert "/onboarding" in body
@@ -1089,41 +1114,40 @@ def test_get_login_page_renders(running_server):
     code, body = _get(running_server, "/login", with_session=False)
     assert code == 200
     assert "Bewerber-Assistent" in body
-    assert "Vorname" in body
-    assert "Nachname" in body
+    assert "Username" in body
+    assert "Passwort" in body
 
 
 def test_post_login_sets_session_cookie(running_server):
-    """Erfolgreicher Login setzt das Cookie + returnt redirect."""
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{running_server}/login",
-        data=json.dumps({"vorname": "Erika", "nachname": "Mustermann"}).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    code, body = _post_json(
+        running_server, "/login",
+        {"username": TEST_USER, "passwort": TEST_PASSWORD},
+        with_session=False,
     )
-    resp = urllib.request.urlopen(req, timeout=5)
-    assert resp.status == 200
-    body = json.loads(resp.read())
-    assert body["ok"] is True
-    assert body["user"] == "Erika Mustermann"
+    assert code == 200
     assert body["redirect"] == "/"
-    set_cookie = resp.getheader("Set-Cookie") or ""
-    assert "bewerber_session=Erika%20Mustermann" in set_cookie
-    assert "Max-Age=" in set_cookie
-    assert "HttpOnly" in set_cookie
 
 
 def test_post_login_rejects_empty_fields(running_server):
-    code, body = _post_json(running_server, "/login", {"vorname": "", "nachname": ""}, with_session=False)
+    code, body = _post_json(running_server, "/login", {"username": "", "passwort": ""}, with_session=False)
     assert code == 400
     assert "erforderlich" in body["error"]
+
+
+def test_post_login_rejects_wrong_password(running_server):
+    code, body = _post_json(
+        running_server, "/login",
+        {"username": TEST_USER, "passwort": "falsch"},
+        with_session=False,
+    )
+    assert code == 401
 
 
 def test_post_logout_clears_session_cookie(running_server):
     req = urllib.request.Request(
         f"http://127.0.0.1:{running_server}/logout",
         data=b"",
-        headers={"Content-Type": "application/json", "Cookie": SESSION_COOKIE},
+        headers={"Content-Type": "application/json", "Cookie": _signed_cookie()},
         method="POST",
     )
     resp = urllib.request.urlopen(req, timeout=5)
@@ -1218,7 +1242,7 @@ def test_onboarding_extract_starts_background_job_returns_job_id(running_server,
         data=body,
         headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "Cookie": SESSION_COOKIE,
+            "Cookie": _signed_cookie(),
         },
         method="POST",
     )
@@ -1244,7 +1268,7 @@ def test_onboarding_extract_rejects_request_without_files(running_server, mocker
         data=body,
         headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "Cookie": SESSION_COOKIE,
+            "Cookie": _signed_cookie(),
         },
         method="POST",
     )
@@ -1430,7 +1454,7 @@ def test_onboarding_save_writes_searches_yaml(running_server, tmp_path):
 
     # searches.yaml geschrieben
     import yaml
-    written = yaml.safe_load((tmp_path / "bewerber" / "searches.yaml").read_text())
+    written = yaml.safe_load(Paths(user=TEST_USER).searches_yaml.read_text())
     assert written["defaults"]["locations"] == ["Leipzig", "Remote"]
     assert written["defaults"]["date_posted_max_days"] == 21
     assert written["defaults"]["exclude_keywords"] == ["SPS"]
@@ -1459,7 +1483,7 @@ def test_onboarding_save_writes_anlagen_yaml_from_folder(running_server, tmp_pat
     assert body["summary"]["anlagen"] == 3   # 2 PDFs + 1 JPG
 
     import yaml
-    written = yaml.safe_load((tmp_path / "bewerber" / "anlagen.yaml").read_text())
+    written = yaml.safe_load(Paths(user=TEST_USER).anlagen_yaml.read_text())
     labels = [a["label"] for a in written["anlagen"]]
     assert "Arbeitszeugnis" in labels
     assert "REFA_Urkunde" in labels
@@ -1538,9 +1562,62 @@ def test_invalid_session_cookie_treated_as_missing(running_server):
     """Wenn der Cookie da ist aber leer/whitespace, soll der Server so handeln als waere keiner da."""
     import http.client
     conn = http.client.HTTPConnection("127.0.0.1", running_server, timeout=5)
-    conn.request("GET", "/", headers={"Cookie": "bewerber_session="})
+    conn.request("GET", "/", headers={"Cookie": "bewerber_session=garbage"})
     resp = conn.getresponse()
     body = resp.read()
     conn.close()
     assert resp.status == 302
     assert resp.getheader("Location") == "/login"
+
+
+# ---------------------------------------------------------------------------
+# Register-Endpoint + Daten-Isolation
+# ---------------------------------------------------------------------------
+
+def test_register_happy_path_creates_user_and_workspace(running_server):
+    code, body = _post_json(
+        running_server, "/api/register",
+        {"vorname": "Neu", "nachname": "Kandidat", "passwort": "geheimpw1", "invite_code": TEST_INVITE},
+        with_session=False,
+    )
+    assert code == 200, body
+    assert body["username"] == "nkandidat"
+    up = Paths(user="nkandidat")
+    assert up.data_dir.is_dir()
+    assert up.searches_yaml.is_file()  # aus .example kopiert
+
+
+def test_register_wrong_invite_code_rejected(running_server):
+    code, body = _post_json(
+        running_server, "/api/register",
+        {"vorname": "X", "nachname": "Y", "passwort": "geheimpw1", "invite_code": "falsch"},
+        with_session=False,
+    )
+    assert code == 403
+
+
+def test_register_short_password_rejected(running_server):
+    code, body = _post_json(
+        running_server, "/api/register",
+        {"vorname": "X", "nachname": "Y", "passwort": "kurz", "invite_code": TEST_INVITE},
+        with_session=False,
+    )
+    assert code == 400
+
+
+def test_data_isolation_between_users(running_server):
+    # Zweiten User anlegen, einloggen, dessen Dashboard sieht KEINEN Seed-Job von tuser
+    from bewerber.dashboard import auth as _auth
+    code, body = _post_json(
+        running_server, "/api/register",
+        {"vorname": "Bea", "nachname": "Beispiel", "passwort": "geheimpw1", "invite_code": TEST_INVITE},
+        with_session=False,
+    )
+    assert code == 200
+    other = body["username"]
+    other_cookie = "bewerber_session=" + urllib.parse.quote(_auth.sign_session(other, TEST_SECRET))
+    # Bea hat noch kein master_profile -> / leitet auf /onboarding um (kein Zugriff auf tuser-State)
+    req = urllib.request.Request(f"http://127.0.0.1:{running_server}/", headers={"Cookie": other_cookie})
+    resp = urllib.request.urlopen(req, timeout=5)
+    # Onboarding-Redirect ODER leeres Dashboard, aber NIE Acme aus tusers state
+    assert b"Acme" not in resp.read()

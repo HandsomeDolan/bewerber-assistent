@@ -66,6 +66,7 @@ from bewerber.shared.anlagen import AnlagenConfig, copy_anlagen_to, load_anlagen
 from bewerber.shared.paths import Paths
 from bewerber.shared.state import load_state, save_state
 from bewerber.shared.state_schema import JobStatus, StatusHistoryEntry
+from bewerber.dashboard import auth
 from bewerber.dashboard.render import (
     render_anlagen_editor,
     render_dashboard,
@@ -77,6 +78,19 @@ from bewerber.dashboard.render import (
 
 SESSION_COOKIE_NAME = "bewerber_session"
 SESSION_MAX_AGE_SECONDS = 30 * 24 * 3600   # 30 Tage
+
+
+def _session_secret() -> str:
+    return os.environ.get("BEWERBER_SECRET_KEY", "")
+
+
+def _invite_code() -> str:
+    return os.environ.get("BEWERBER_INVITE_CODE", "")
+
+
+def _registry_path() -> Path:
+    # users/registry.json liegt im geteilten Workspace (user-unabhaengig)
+    return Paths().users_dir / "registry.json"
 
 # ------------------------------------------------------------------
 # Onboarding-Extraktion: Background-Thread-State (modul-level)
@@ -154,7 +168,7 @@ def _run_discover_background(job_id: str, paths: Paths) -> None:
         from bewerber.discovery.scrapers import linkedin as _li  # noqa: F401
         from bewerber.discovery.scrapers import indeed as _id  # noqa: F401
 
-        searches_path = paths.bewerber_dir / "searches.yaml"
+        searches_path = paths.searches_yaml
         if not searches_path.is_file():
             raise FileNotFoundError(f"searches.yaml fehlt: {searches_path}")
         config = load_searches(searches_path)
@@ -246,7 +260,6 @@ def _open_folder_macos(path: str) -> bool:
 
 
 class _Handler(BaseHTTPRequestHandler):
-    paths: Paths  # injected by factory
 
     def _send_json(self, code: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -271,7 +284,7 @@ class _Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
 
     def _session_user(self) -> Optional[str]:
-        """Liest den Login-Namen aus dem bewerber_session-Cookie. None wenn fehlt."""
+        """Verifiziert das signierte bewerber_session-Cookie -> username oder None."""
         raw = self.headers.get("Cookie", "")
         if not raw:
             return None
@@ -279,21 +292,44 @@ class _Handler(BaseHTTPRequestHandler):
             cookies = http.cookies.SimpleCookie()
             cookies.load(raw)
             morsel = cookies.get(SESSION_COOKIE_NAME)
-        except Exception:  # noqa: BLE001 - kaputter Cookie ist wie keiner
+        except Exception:  # noqa: BLE001
             return None
         if morsel is None:
             return None
         value = urllib.parse.unquote(morsel.value).strip()
-        return value or None
+        return auth.verify_session(value, _session_secret())
 
-    def _set_session_cookie_header(self, user_name: str) -> None:
-        """Fuegt den Set-Cookie-Header hinzu. VOR end_headers() rufen."""
-        quoted = urllib.parse.quote(user_name)
+    def _set_session_cookie_header(self, username: str) -> None:
+        """Set-Cookie mit signierter Session. VOR end_headers() rufen."""
+        signed = auth.sign_session(username, _session_secret())
+        quoted = urllib.parse.quote(signed)
         self.send_header(
             "Set-Cookie",
             f"{SESSION_COOKIE_NAME}={quoted}; Max-Age={SESSION_MAX_AGE_SECONDS}; "
             f"Path=/; HttpOnly; SameSite=Lax",
         )
+
+    @property
+    def paths(self) -> "Paths":
+        """Per-Request Paths, abgeleitet aus der verifizierten Session."""
+        return Paths(user=self._session_user())
+
+    def _require_session(self) -> Optional[str]:
+        """Gibt username oder sendet 401 und gibt None zurueck (fuer API-Routen)."""
+        user = self._session_user()
+        if not user:
+            self._send_json(401, {"error": "nicht eingeloggt"})
+            return None
+        return user
+
+    def _current_display_name(self) -> Optional[str]:
+        user = self._session_user()
+        if not user:
+            return None
+        entry = auth.load_registry(_registry_path()).get(user, {})
+        vn = entry.get("vorname", "")
+        nn = entry.get("nachname", "")
+        return f"{vn} {nn}".strip() or user
 
     def _clear_session_cookie_header(self) -> None:
         self.send_header(
@@ -336,7 +372,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._redirect("/onboarding")
                 return
             state = load_state(self.paths.state_json)
-            self._send_html(render_dashboard(state, current_user=session))
+            self._send_html(render_dashboard(state, current_user=self._current_display_name()))
             return
         if self.path == "/login":
             self._send_html(render_login())
@@ -346,19 +382,29 @@ class _Handler(BaseHTTPRequestHandler):
             if not session:
                 self._redirect("/login")
                 return
-            self._send_html(render_onboarding(current_user=session))
+            self._send_html(render_onboarding(current_user=self._current_display_name()))
             return
         if self.path == "/searches":
+            if not self._session_user():
+                self._redirect("/login")
+                return
             self._send_html(render_searches_editor(_load_searches_config(self.paths)))
             return
         if self.path == "/api/searches":
+            if self._require_session() is None:
+                return
             cfg = _load_searches_config(self.paths)
             self._send_json(200, cfg.model_dump())
             return
         if self.path == "/anlagen":
+            if not self._session_user():
+                self._redirect("/login")
+                return
             self._send_html(render_anlagen_editor(load_anlagen(self.paths.anlagen_yaml)))
             return
         if self.path == "/api/anlagen":
+            if self._require_session() is None:
+                return
             cfg = load_anlagen(self.paths.anlagen_yaml)
             self._send_json(200, cfg.model_dump(mode="json"))
             return
@@ -396,6 +442,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_failed_remove()
             elif self.path == "/login":
                 self._handle_login()
+            elif self.path == "/api/register":
+                self._handle_register()
             elif self.path == "/logout":
                 self._handle_logout()
             elif self.path == "/api/onboarding/extract":
@@ -420,7 +468,7 @@ class _Handler(BaseHTTPRequestHandler):
         except ValidationError as ve:
             self._send_json(400, {"error": _format_validation_error(ve)})
             return
-        _save_searches_atomic(self.paths.bewerber_dir / "searches.yaml", cfg)
+        _save_searches_atomic(self.paths.searches_yaml, cfg)
         self._send_json(200, {"ok": True, "searches": len(cfg.searches)})
 
     def _handle_save_anlagen(self) -> None:
@@ -975,7 +1023,7 @@ class _Handler(BaseHTTPRequestHandler):
         except ValidationError as ve:
             self._send_json(400, {"error": _format_validation_error(ve)})
             return
-        _save_searches_atomic(self.paths.bewerber_dir / "searches.yaml", cfg)
+        _save_searches_atomic(self.paths.searches_yaml, cfg)
 
         # --- 2. anlagen.yaml (optional - nur wenn Folder angegeben + existiert) ---
         anlagen_folder = (body.get("anlagen_folder") or "").strip()
@@ -1047,20 +1095,60 @@ class _Handler(BaseHTTPRequestHandler):
         self._send_json(200, state)
 
     def _handle_login(self) -> None:
-        """Setzt das Session-Cookie auf 'Vorname Nachname'."""
         body = self._read_json()
-        vorname = (body.get("vorname") or "").strip()
-        nachname = (body.get("nachname") or "").strip()
-        if not vorname or not nachname:
-            self._send_json(400, {"error": "Vorname und Nachname sind erforderlich."})
+        username = (body.get("username") or "").strip()
+        passwort = body.get("passwort") or ""
+        if not username or not passwort:
+            self._send_json(400, {"error": "Username und Passwort sind erforderlich."})
             return
-        user_name = f"{vorname} {nachname}"
-        payload = json.dumps({"ok": True, "user": user_name, "redirect": "/"}, ensure_ascii=False).encode("utf-8")
+        if not auth.authenticate(_registry_path(), username, passwort):
+            self._send_json(401, {"error": "Login fehlgeschlagen."})
+            return
+        payload = json.dumps({"ok": True, "redirect": "/"}, ensure_ascii=False).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
-        self._set_session_cookie_header(user_name)
+        self._set_session_cookie_header(username)
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _handle_register(self) -> None:
+        body = self._read_json()
+        vorname = (body.get("vorname") or "").strip()
+        nachname = (body.get("nachname") or "").strip()
+        passwort = body.get("passwort") or ""
+        invite = (body.get("invite_code") or "").strip()
+        if not vorname or not nachname or not passwort:
+            self._send_json(400, {"error": "Vorname, Nachname und Passwort sind erforderlich."})
+            return
+        if len(passwort) < 8:
+            self._send_json(400, {"error": "Passwort muss mindestens 8 Zeichen haben."})
+            return
+        if not _invite_code() or invite != _invite_code():
+            self._send_json(403, {"error": "Ungueltiger Einladungs-Code."})
+            return
+        username = auth.register_user(_registry_path(), vorname, nachname, passwort)
+        # Per-User-Workspace anlegen + Starter-Configs aus den .example-Vorlagen kopieren
+        user_paths = Paths(user=username)
+        user_paths.data_dir.mkdir(parents=True, exist_ok=True)
+        (user_paths.bewerbungen).mkdir(parents=True, exist_ok=True)
+        bewerber_dir = Paths().bewerber_dir
+        for example_name, target in (
+            ("searches.yaml.example", user_paths.searches_yaml),
+            ("anlagen.yaml.example", user_paths.anlagen_yaml),
+        ):
+            example = bewerber_dir / example_name
+            if example.is_file() and not target.is_file():
+                target.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
+        payload = json.dumps(
+            {"ok": True, "username": username, "redirect": "/"}, ensure_ascii=False
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self._set_session_cookie_header(username)
         self.end_headers()
         self.wfile.write(payload)
 
@@ -1211,7 +1299,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 def _load_searches_config(paths: Paths) -> SearchesConfig:
     """Load searches.yaml; return empty SearchesConfig when missing."""
-    p = paths.bewerber_dir / "searches.yaml"
+    p = paths.searches_yaml
     if not p.is_file():
         return SearchesConfig()
     data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
@@ -1256,9 +1344,9 @@ def _format_validation_error(ve: ValidationError) -> str:
 
 
 def make_handler(paths: Paths) -> type[_Handler]:
-    """Bind a Paths instance to a handler class (one fresh class per server)."""
-    handler_cls = type("_BoundHandler", (_Handler,), {"paths": paths})
-    return handler_cls
+    """Erzeugt eine Handler-Klasse. paths wird ignoriert — der Handler leitet
+    Paths pro Request aus der Session ab (self.paths-Property)."""
+    return type("_BoundHandler", (_Handler,), {})
 
 
 def serve(paths: Optional[Paths] = None, port: int = 0) -> HTTPServer:
