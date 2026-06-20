@@ -114,3 +114,32 @@ def test_project_folders_accepts_underscore_separator(monkeypatch, tmp_path):
         "20_SEO_AFM",
         "22_BandScoring",
     ]
+
+
+def test_paths_without_user_is_legacy(monkeypatch, tmp_path):
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(tmp_path))
+    p = Paths()
+    assert p.data_dir == tmp_path / "bewerber"
+    assert p.state_json == tmp_path / "bewerber" / "state.json"
+    assert p.master_profile == tmp_path / "bewerber" / "master_profile.yaml"
+
+
+def test_paths_with_user_scopes_data_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(tmp_path))
+    p = Paths(user="tuser")
+    base = tmp_path / "bewerber" / "users" / "tuser"
+    assert p.users_dir == tmp_path / "bewerber" / "users"
+    assert p.data_dir == base
+    assert p.state_json == base / "state.json"
+    assert p.master_profile == base / "master_profile.yaml"
+    assert p.searches_yaml == base / "searches.yaml"
+    assert p.anlagen_yaml == base / "anlagen.yaml"
+    assert p.dashboard_html == base / "dashboard.html"
+    assert p.bewerbungen == base / "Bewerbungen"
+
+
+def test_paths_bewerbungen_without_user_is_documents(monkeypatch, tmp_path):
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("BEWERBER_DOCUMENTS", str(tmp_path / "docs"))
+    p = Paths()
+    assert p.bewerbungen == tmp_path / "docs" / "Bewerbungsunterlagen" / "Bewerbungen"

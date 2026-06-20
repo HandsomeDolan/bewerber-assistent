@@ -9,7 +9,8 @@ class Paths:
     PROJECT_FOLDER_REGEX = re.compile(r"^\d+[\s_]+.+")
     _LEADING_NUMBER_REGEX = re.compile(r"^(\d+)")
 
-    def __init__(self) -> None:
+    def __init__(self, user: str | None = None) -> None:
+        self.user = user
         # BEWERBER_WORKSPACE override hat Vorrang. Sonst auto-detecten via
         # __file__ - das funktioniert robust egal welcher cwd der User hat,
         # solange das Paket via `pip install -e .` installiert wurde.
@@ -51,16 +52,35 @@ class Paths:
         return self.workspace / "bewerber"
 
     @property
+    def users_dir(self) -> Path:
+        return self.bewerber_dir / "users"
+
+    @property
+    def data_dir(self) -> Path:
+        """Per-User-Datenordner; ohne user der Legacy-bewerber_dir."""
+        if self.user:
+            return self.users_dir / self.user
+        return self.bewerber_dir
+
+    @property
     def master_profile(self) -> Path:
-        return self.bewerber_dir / "master_profile.yaml"
+        return self.data_dir / "master_profile.yaml"
 
     @property
     def state_json(self) -> Path:
-        return self.bewerber_dir / "state.json"
+        return self.data_dir / "state.json"
 
     @property
     def dashboard_html(self) -> Path:
-        return self.bewerber_dir / "dashboard.html"
+        return self.data_dir / "dashboard.html"
+
+    @property
+    def searches_yaml(self) -> Path:
+        return self.data_dir / "searches.yaml"
+
+    @property
+    def anlagen_yaml(self) -> Path:
+        return self.data_dir / "anlagen.yaml"
 
     @property
     def bewerbungsunterlagen(self) -> Path:
@@ -68,15 +88,13 @@ class Paths:
 
     @property
     def bewerbungen(self) -> Path:
+        if self.user:
+            return self.data_dir / "Bewerbungen"
         return self.bewerbungsunterlagen / "Bewerbungen"
 
     @property
     def anschreiben_examples(self) -> Path:
         return self.bewerber_dir / "anschreiben_examples"
-
-    @property
-    def anlagen_yaml(self) -> Path:
-        return self.bewerber_dir / "anlagen.yaml"
 
     def project_folders(self) -> list[Path]:
         """Return folders matching `<number> <name>`, sorted by (leading_number, name)."""
