@@ -1668,3 +1668,36 @@ def test_post_data_route_requires_session(running_server):
     )
     assert code == 401, f"Erwartet 401, bekam {code}: {body}"
     assert "eingeloggt" in body.get("error", "").lower() or "nicht" in body.get("error", "").lower()
+
+
+# ---------------------------------------------------------------------------
+# Anlagen-Upload-Endpoint
+# ---------------------------------------------------------------------------
+
+def test_anlagen_upload_saves_to_user_dir(running_server):
+    import urllib.request
+    boundary = "----testboundary"
+    parts = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="files"; filename="zeugnis.pdf"\r\n'
+        "Content-Type: application/pdf\r\n\r\n"
+        "PDFDATA\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/anlagen/upload",
+        data=parts,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Cookie": _signed_cookie()},
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=5)
+    body = json.loads(resp.read())
+    assert body["ok"] is True
+    assert body["saved"] == ["anlagen/zeugnis.pdf"]
+    up = Paths(user=TEST_USER)
+    assert (up.data_dir / "anlagen" / "zeugnis.pdf").is_file()
+
+
+def test_anlagen_upload_requires_session(running_server):
+    code, body = _post_json(running_server, "/api/anlagen/upload", {}, with_session=False)
+    assert code == 401

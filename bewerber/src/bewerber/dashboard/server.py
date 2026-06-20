@@ -431,6 +431,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_save_anlagen()
             elif self.path == "/api/anlagen/verify":
                 self._handle_verify_anlagen()
+            elif self.path == "/api/anlagen/upload":
+                self._handle_anlagen_upload()
             elif self.path == "/api/add-posting":
                 self._handle_add_posting()
             elif self.path == "/api/tailor":
@@ -500,6 +502,28 @@ class _Handler(BaseHTTPRequestHandler):
             return
         missing = [p for p in paths if not Path(p).is_file()]
         self._send_json(200, {"missing": missing})
+
+    def _handle_anlagen_upload(self) -> None:
+        if self._require_session() is None:
+            return
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0:
+            self._send_json(400, {"error": "Body fehlt"})
+            return
+        body = self.rfile.read(length)
+        fields = _parse_multipart(self.headers, body)
+        files = [(c, fn) for c, fn in fields.get("files", []) if fn and c]
+        if not files:
+            self._send_json(400, {"error": "Mindestens eine Datei erforderlich (Feld 'files')"})
+            return
+        anlagen_dir = self.paths.data_dir / "anlagen"
+        anlagen_dir.mkdir(parents=True, exist_ok=True)
+        saved = []
+        for content, fname in files:
+            safe = Path(fname or "upload").name
+            (anlagen_dir / safe).write_bytes(content)
+            saved.append(f"anlagen/{safe}")
+        self._send_json(200, {"ok": True, "saved": saved})
 
     def _handle_add_posting(self) -> None:
         """Manually add a job via URL: snapshot + score + upsert to state."""

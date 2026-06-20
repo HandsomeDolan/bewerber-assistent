@@ -66,6 +66,13 @@
       "Lebenslauf" wird automatisch vorangestellt - hier NICHT eintragen.
       Pfade muessen <b>absolut</b> sein.
     </p>
+    <div style="margin:12px 0; padding:10px; border:1px dashed #bbb; border-radius:4px;">
+      <label style="font-weight:600; font-size:13px;">Dateien hochladen (PDF):
+        <input type="file" id="anlagen-upload" multiple accept="application/pdf">
+      </label>
+      <button type="button" onclick="uploadAnlagen()">Hochladen</button>
+      <span id="anlagen-upload-status" style="font-size:12px; margin-left:8px;"></span>
+    </div>
     <div id="anlagen-list">
       <div class="empty-state">Noch keine Anlagen konfiguriert.</div>
     </div>
@@ -263,6 +270,22 @@ window.addEventListener("beforeunload", e => {
 
 renderConfig(initialConfig);
 setDirty(false);
+
+async function uploadAnlagen() {
+  const input = document.getElementById("anlagen-upload");
+  if (!input.files.length) return;
+  const fd = new FormData();
+  for (const f of input.files) fd.append("files", f);
+  const status = document.getElementById("anlagen-upload-status");
+  status.textContent = "Lade hoch ...";
+  try {
+    const resp = await fetch("/api/anlagen/upload", {method: "POST", body: fd});
+    const body = await resp.json();
+    if (!resp.ok) { status.textContent = body.error || "Fehler"; return; }
+    status.textContent = "Hochgeladen: " + body.saved.join(", ");
+    if (window.onAnlagenUploaded) window.onAnlagenUploaded(body.saved);
+  } catch (e) { status.textContent = "Netzfehler: " + e.message; }
+}
 </script>
 </body>
 </html>
