@@ -34,6 +34,7 @@ class TailorInput:
     source_url: Optional[str]
     snapshot_dir: Optional[Path]  # if URL was snapshotted, location of posting.html/pdf
     llm: LLMClient
+    paths: Paths
     starttermin: Optional[str] = None
     gehalt: Optional[str] = None
 
@@ -49,7 +50,7 @@ class TailorResult:
 
 def tailor(inp: TailorInput) -> TailorResult:
     """Run full tailoring pipeline: customize, anschreiben, render, save."""
-    paths = Paths()
+    paths = inp.paths
     master = _load_master(paths.master_profile)
     master_yaml_text = paths.master_profile.read_text(encoding="utf-8")
 

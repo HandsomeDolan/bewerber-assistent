@@ -184,6 +184,7 @@ def cmd_tailor(url, posting_file, firma, rolle, kontakt_name, datum, starttermin
         source_url=source_url,
         snapshot_dir=snapshot_dir,
         llm=llm,
+        paths=Paths(),
         starttermin=starttermin,
         gehalt=gehalt,
     ))

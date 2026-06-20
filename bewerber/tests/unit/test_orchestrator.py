@@ -53,6 +53,7 @@ def test_tailor_full_pipeline_with_text_input(tmp_path, mocker, monkeypatch):
         gruss="Mit freundlichen Grüßen\nSteve",
     ))
 
+    from bewerber.shared.paths import Paths
     job_text = "KI Manager bei BMW. Python gesucht."
     result = tailor(TailorInput(
         posting_text=job_text,
@@ -63,6 +64,7 @@ def test_tailor_full_pipeline_with_text_input(tmp_path, mocker, monkeypatch):
         source_url=None,
         snapshot_dir=None,
         llm=mocker.Mock(),
+        paths=Paths(),
     ))
 
     assert isinstance(result, TailorResult)
@@ -111,9 +113,11 @@ def test_tailor_loads_anschreiben_few_shot_examples(tmp_path, mocker, monkeypatc
         anrede="x", einleitung="x", hauptteil="x", schluss="x", gruss="x",
     ))
 
+    from bewerber.shared.paths import Paths
     tailor(TailorInput(
         posting_text="job", firma="X", rolle="Y", datum="2026-06-12",
         kontakt_name=None, source_url=None, snapshot_dir=None, llm=mocker.Mock(),
+        paths=Paths(),
     ))
 
     # Verify few_shot_examples was passed
@@ -171,6 +175,7 @@ def test_tailor_writes_state_entry(tmp_path, monkeypatch, mocker):
         anrede="x", einleitung="x", hauptteil="x", schluss="x", gruss="x",
     ))
 
+    from bewerber.shared.paths import Paths
     result = tailor(TailorInput(
         posting_text="job",
         firma="2b AHEAD",
@@ -180,6 +185,7 @@ def test_tailor_writes_state_entry(tmp_path, monkeypatch, mocker):
         source_url="https://example.com/job/abc",
         snapshot_dir=None,
         llm=mocker.Mock(),
+        paths=Paths(),
     ))
 
     from bewerber.shared.state import load_state
@@ -237,9 +243,11 @@ def test_tailor_copies_anlagen_and_lists_labels_in_posting_meta(tmp_path, monkey
         return_value=b"%PDF-1.4 fake-anschreiben",
     )
 
+    from bewerber.shared.paths import Paths
     result = tailor(TailorInput(
         posting_text="job", firma="X GmbH", rolle="Y", datum="2026-06-12",
         kontakt_name=None, source_url=None, snapshot_dir=None, llm=mocker.Mock(),
+        paths=Paths(),
     ))
 
     out_dir = result.output_dir
@@ -281,9 +289,11 @@ def test_tailor_works_without_anlagen_yaml(tmp_path, monkeypatch, mocker):
         return_value=b"%PDF-1.4 fake",
     )
 
+    from bewerber.shared.paths import Paths
     result = tailor(TailorInput(
         posting_text="job", firma="X", rolle="Y", datum="2026-06-12",
         kontakt_name=None, source_url=None, snapshot_dir=None, llm=mocker.Mock(),
+        paths=Paths(),
     ))
 
     assert render_spy.call_args.kwargs["anlagen"] == ["Lebenslauf"]
@@ -330,6 +340,7 @@ def test_tailor_updates_existing_state_entry_if_url_matches(tmp_path, monkeypatc
         anrede="x", einleitung="x", hauptteil="x", schluss="x", gruss="x",
     ))
 
+    from bewerber.shared.paths import Paths
     tailor(TailorInput(
         posting_text="job",
         firma="2b AHEAD",
@@ -339,6 +350,7 @@ def test_tailor_updates_existing_state_entry_if_url_matches(tmp_path, monkeypatc
         source_url="https://example.com/job/abc",
         snapshot_dir=None,
         llm=mocker.Mock(),
+        paths=Paths(),
     ))
 
     from bewerber.shared.state import load_state

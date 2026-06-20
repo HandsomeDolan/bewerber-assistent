@@ -612,6 +612,7 @@ class _Handler(BaseHTTPRequestHandler):
                 source_url=job.raw.url or None,
                 snapshot_dir=None,
                 llm=llm,
+                paths=self.paths,
                 starttermin=starttermin,
                 gehalt=body.get("gehalt") or None,
             ))
@@ -1202,6 +1203,7 @@ class _Handler(BaseHTTPRequestHandler):
         from bewerber.tailoring.orchestrator import TailorInput, tailor
 
         llm = LLMClient.for_generation()
+        paths = self.paths  # bind in request context before the loop
         total = len(job_ids)
         emit({"event": "begin", "total": total})
 
@@ -1235,6 +1237,7 @@ class _Handler(BaseHTTPRequestHandler):
                     source_url=job.raw.url or None,
                     snapshot_dir=None,
                     llm=llm,
+                    paths=paths,
                     starttermin=starttermin,
                     gehalt=gehalt,
                 ))
