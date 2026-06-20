@@ -32,3 +32,6 @@ docs/superpowers/
 
 # OS
 .DS_Store
+
+# Stray nested dir from wrong-cwd runs (never commit)
+bewerber/bewerber/
