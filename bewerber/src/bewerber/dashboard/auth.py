@@ -88,7 +88,7 @@ def sign_session(username: str, secret: str) -> str:
 def verify_session(cookie_value: str, secret: str) -> Optional[str]:
     if not cookie_value or "." not in cookie_value:
         return None
-    username, _, sig = cookie_value.partition(".")
+    username, _, sig = cookie_value.rpartition(".")
     if not username or not sig:
         return None
     expected = hmac.new(secret.encode("utf-8"), username.encode("utf-8"), hashlib.sha256).hexdigest()

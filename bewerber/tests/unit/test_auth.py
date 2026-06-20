@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import pytest
-
 from bewerber.dashboard import auth
 
 
@@ -67,6 +65,12 @@ def test_session_rejects_tampering_and_wrong_secret():
     # Müll
     assert auth.verify_session("kaputt", secret) is None
     assert auth.verify_session("", secret) is None
+
+
+def test_session_roundtrip_with_dotted_username():
+    secret = "supersecret-key"
+    cookie = auth.sign_session("j.picard", secret)
+    assert auth.verify_session(cookie, secret) == "j.picard"
 
 
 def test_ensure_env_value_appends_and_is_stable(tmp_path):
