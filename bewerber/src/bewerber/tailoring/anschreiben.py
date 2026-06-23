@@ -56,6 +56,15 @@ def _collect_few_shot_examples(examples_dir: Path) -> list[str]:
     return [f.read_text(encoding="utf-8") for f in files]
 
 
+_EN_OUTPUT_DIRECTIVE = (
+    "OUTPUT LANGUAGE: ENGLISH (professional international business English).\n"
+    "Write the ENTIRE cover letter in English - salutation, body and closing. "
+    "Use an English salutation (e.g. 'Dear Ms./Mr. <last name>,' or 'Dear Hiring Team,') "
+    "and an English closing (e.g. 'Kind regards,'). This OVERRIDES any rule below that "
+    "says to answer in German or to use the German 'Sie'-form.\n\n"
+)
+
+
 def generate_anschreiben(
     master_yaml_text: str,
     job_description: str,
@@ -64,30 +73,58 @@ def generate_anschreiben(
     llm: LLMClient,
     starttermin: Optional[str] = None,
     gehalt: Optional[str] = None,
+    sprache: str = "de",
 ) -> AnschreibenContent:
-    """Run LLM pass 2: generate Anschreiben as structured content."""
+    """Run LLM pass 2: generate Anschreiben as structured content.
+
+    `sprache`: "de" (default) or "en" - language of the generated cover letter.
+    """
+    en = sprache == "en"
     examples_block = ""
     if few_shot_examples:
-        examples_block = "BISHERIGE ANSCHREIBEN VOM BEWERBER (Stil-Referenz, NICHT kopieren):\n\n"
+        header = ("PREVIOUS COVER LETTERS BY THE APPLICANT (style reference, do NOT copy):\n\n"
+                  if en else
+                  "BISHERIGE ANSCHREIBEN VOM BEWERBER (Stil-Referenz, NICHT kopieren):\n\n")
+        examples_block = header
+        label = "Example" if en else "Beispiel"
         for i, ex in enumerate(few_shot_examples, start=1):
-            examples_block += f"--- Beispiel {i} ---\n{ex}\n\n"
+            examples_block += f"--- {label} {i} ---\n{ex}\n\n"
 
-    kontakt_hint = (
-        f"Ansprechpartner laut Stellenausschreibung: {kontakt_name}. "
-        f"Anrede entsprechend: 'Sehr geehrte/r Frau/Herr {kontakt_name.split()[-1] if kontakt_name else ''}'."
-        if kontakt_name
-        else "Es gibt keinen konkreten Ansprechpartner - Anrede: 'Sehr geehrte Damen und Herren,'"
-    )
+    last = kontakt_name.split()[-1] if kontakt_name else ""
+    if en:
+        kontakt_hint = (
+            f"Contact person from the job posting: {kontakt_name}. "
+            f"Salutation accordingly: 'Dear Ms./Mr. {last},'."
+            if kontakt_name
+            else "There is no specific contact person - salutation: 'Dear Hiring Team,'"
+        )
+    else:
+        kontakt_hint = (
+            f"Ansprechpartner laut Stellenausschreibung: {kontakt_name}. "
+            f"Anrede entsprechend: 'Sehr geehrte/r Frau/Herr {last}'."
+            if kontakt_name
+            else "Es gibt keinen konkreten Ansprechpartner - Anrede: 'Sehr geehrte Damen und Herren,'"
+        )
 
     vorgaben_lines = []
-    if starttermin:
-        vorgaben_lines.append(f"- Frühester Starttermin: {starttermin} (muss im Schluss erwähnt werden)")
-    if gehalt:
-        vorgaben_lines.append(f"- Gehaltsvorstellung: {gehalt} (muss im Schluss als jährliches Bruttogehalt erwähnt werden)")
-    vorgaben_block = ""
-    if vorgaben_lines:
-        vorgaben_block = "VORGABEN DES NUTZERS (im Schluss-Absatz einweben):\n" + "\n".join(vorgaben_lines) + "\n\n"
+    if en:
+        if starttermin:
+            vorgaben_lines.append(f"- Earliest start date: {starttermin} (must be mentioned in the closing)")
+        if gehalt:
+            vorgaben_lines.append(f"- Salary expectation: {gehalt} (mention in the closing as annual gross salary)")
+        vorgaben_block = ("USER REQUIREMENTS (weave into the closing paragraph):\n"
+                          + "\n".join(vorgaben_lines) + "\n\n") if vorgaben_lines else ""
+        final = "Compose the English cover letter."
+    else:
+        if starttermin:
+            vorgaben_lines.append(f"- Frühester Starttermin: {starttermin} (muss im Schluss erwähnt werden)")
+        if gehalt:
+            vorgaben_lines.append(f"- Gehaltsvorstellung: {gehalt} (muss im Schluss als jährliches Bruttogehalt erwähnt werden)")
+        vorgaben_block = ("VORGABEN DES NUTZERS (im Schluss-Absatz einweben):\n"
+                          + "\n".join(vorgaben_lines) + "\n\n") if vorgaben_lines else ""
+        final = "Verfasse das deutsche Anschreiben."
 
+    system = (_EN_OUTPUT_DIRECTIVE + ANSCHREIBEN_SYSTEM_PROMPT) if en else ANSCHREIBEN_SYSTEM_PROMPT
     user = (
         "MASTER-PROFIL DES BEWERBERS:\n"
         f"{master_yaml_text}\n\n"
@@ -96,10 +133,10 @@ def generate_anschreiben(
         f"{kontakt_hint}\n\n"
         f"{vorgaben_block}"
         f"{examples_block}"
-        "Verfasse das deutsche Anschreiben."
+        f"{final}"
     )
     return llm.structured(
-        system=ANSCHREIBEN_SYSTEM_PROMPT,
+        system=system,
         user=user,
         schema=AnschreibenContent,
     )

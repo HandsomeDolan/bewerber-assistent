@@ -82,7 +82,7 @@ body {
     {{ profile.person.name }}{% if profile.person.adresse %} · {{ profile.person.adresse }}{% endif %}
   </div>
   <div class="row firma">{{ firma }}</div>
-  {% if kontakt_name %}<div class="row">z. Hd. {{ kontakt_name }}</div>{% endif %}
+  {% if kontakt_name %}<div class="row">{{ lbl.zhd }} {{ kontakt_name }}</div>{% endif %}
   <div class="leerzeile"></div>
   <div class="row">&nbsp;</div>
   <div class="row">&nbsp;</div>
@@ -92,7 +92,7 @@ body {
   {% if ort %}{{ ort }}, {% endif %}{{ datum }}
 </div>
 
-<div class="betreff">Bewerbung als {{ rolle }}</div>
+<div class="betreff">{{ lbl.betreff_prefix }} {{ rolle }}</div>
 
 <div class="body">
   <p class="anrede">{{ anschreiben.anrede }}</p>
@@ -102,13 +102,13 @@ body {
 </div>
 
 <div class="gruss">
-  <div class="gruss-formel">{{ anschreiben.gruss.split('\n')[0] if '\n' in anschreiben.gruss else 'Mit freundlichen Grüßen' }}</div>
+  <div class="gruss-formel">{{ anschreiben.gruss.split('\n')[0] if '\n' in anschreiben.gruss else lbl.gruss_fallback }}</div>
   <div class="gruss-name">{{ profile.person.name }}</div>
 </div>
 
 {% if anlagen %}
 <div class="anlagen">
-  <div class="anlagen-titel">Anlagen</div>
+  <div class="anlagen-titel">{{ lbl.anlagen_titel }}</div>
   {% for a in anlagen %}<div>{{ a }}</div>{% endfor %}
 </div>
 {% endif %}

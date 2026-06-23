@@ -127,21 +127,44 @@ def _master_to_prompt(profile: MasterProfile) -> str:
     return yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
 
 
+_EN_OUTPUT_DIRECTIVE = (
+    "OUTPUT LANGUAGE: ENGLISH (professional international business English).\n"
+    "Write ALL generated content - profile, bullets, project titles, skill terms - "
+    "in English. This OVERRIDES any rule below that says to answer in German "
+    "('Antworte ausschließlich auf Deutsch' does NOT apply).\n\n"
+)
+
+
 def customize_resume(
-    profile: MasterProfile, job_description: str, llm: LLMClient
+    profile: MasterProfile, job_description: str, llm: LLMClient, sprache: str = "de"
 ) -> CustomizedResume:
-    """Run LLM pass 1: select/reorder/refine Lebenslauf for this specific job."""
+    """Run LLM pass 1: select/reorder/refine Lebenslauf for this specific job.
+
+    `sprache`: "de" (default) or "en" - language of the generated resume content.
+    """
     master_text = _master_to_prompt(profile)
+    system = CUSTOMIZE_SYSTEM_PROMPT
+    if sprache == "en":
+        system = _EN_OUTPUT_DIRECTIVE + system
+        final = (
+            "Create a tailored resume structure with WERDEGANG (high-level) and "
+            "DETAILLIERTE PROJEKTERFAHRUNG (thematic blocks). Draw ONLY from the master. "
+            "Write everything in English."
+        )
+    else:
+        final = (
+            "Erstelle eine zugeschnittene Lebenslauf-Struktur mit WERDEGANG (high-level) "
+            "und DETAILLIERTER PROJEKTERFAHRUNG (thematische Blöcke). Nur aus dem Master schöpfen."
+        )
     user = (
         "MASTER-PROFIL:\n"
         f"{master_text}\n\n"
         "STELLENAUSSCHREIBUNG:\n"
         f"{job_description}\n\n"
-        "Erstelle eine zugeschnittene Lebenslauf-Struktur mit WERDEGANG (high-level) "
-        "und DETAILLIERTER PROJEKTERFAHRUNG (thematische Blöcke). Nur aus dem Master schöpfen."
+        f"{final}"
     )
     return llm.structured(
-        system=CUSTOMIZE_SYSTEM_PROMPT,
+        system=system,
         user=user,
         schema=CustomizedResume,
     )

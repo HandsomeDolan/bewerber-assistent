@@ -18,17 +18,48 @@ def _env() -> Environment:
     )
 
 
+# Statische Beschriftungen fuer CV + Anschreiben, sprachabhaengig. Die LLM-Texte
+# (Profil, Bullets, Anrede, Gruss) kommen separat in der Zielsprache.
+_LABELS = {
+    "de": {
+        "profil": "PROFIL", "skills": "SKILLS", "werdegang": "WERDEGANG",
+        "projekte": "DETAILLIERTE PROJEKTERFAHRUNG", "bildung": "BILDUNG",
+        "sprachen": "SPRACHEN", "zertifikate": "WEITERBILDUNGEN & ZERTIFIKATE",
+        "sk_prozess": "Prozessmanagement", "sk_projekt": "Projektmanagement",
+        "sk_komm": "Kommunikation & Training", "sk_auto": "Automatisierung & KI",
+        "sk_vertrieb": "Vertrieb", "heute": "heute", "ergebnis": "Ergebnis",
+        "zhd": "z. Hd.", "betreff_prefix": "Bewerbung als",
+        "gruss_fallback": "Mit freundlichen Grüßen", "anlagen_titel": "Anlagen",
+    },
+    "en": {
+        "profil": "PROFILE", "skills": "SKILLS", "werdegang": "EXPERIENCE",
+        "projekte": "SELECTED PROJECT EXPERIENCE", "bildung": "EDUCATION",
+        "sprachen": "LANGUAGES", "zertifikate": "TRAINING & CERTIFICATIONS",
+        "sk_prozess": "Process Management", "sk_projekt": "Project Management",
+        "sk_komm": "Communication & Training", "sk_auto": "Automation & AI",
+        "sk_vertrieb": "Sales", "heute": "present", "ergebnis": "Result",
+        "zhd": "Attn:", "betreff_prefix": "Application for",
+        "gruss_fallback": "Kind regards", "anlagen_titel": "Enclosures",
+    },
+}
+
+
+def _labels(sprache: str) -> dict:
+    return _LABELS.get(sprache, _LABELS["de"])
+
+
 def render_lebenslauf(
     profile: MasterProfile,
     customized: CustomizedResume,
     zielposition_titel: Optional[str] = None,
+    sprache: str = "de",
 ) -> bytes:
     """Render Lebenslauf as PDF bytes.
 
     `zielposition_titel`: optional Untertitel im Header (z. B. Rolle, auf die beworben wird).
-    Default: "Projekt- und Prozessmanager" (im Template hartcodiert als Fallback).
+    `sprache`: "de" (default) oder "en" - steuert die statischen Sektions-Labels.
     """
-    html_text = _lebenslauf_html(profile, customized, zielposition_titel)
+    html_text = _lebenslauf_html(profile, customized, zielposition_titel, sprache)
     return HTML(string=html_text).write_pdf()
 
 
@@ -36,12 +67,14 @@ def _lebenslauf_html(
     profile: MasterProfile,
     customized: CustomizedResume,
     zielposition_titel: Optional[str] = None,
+    sprache: str = "de",
 ) -> str:
     """Render Lebenslauf HTML string (used by orchestrator to persist editable source)."""
     return _env().get_template("lebenslauf.html.j2").render(
         profile=profile,
         customized=customized,
         zielposition_titel=zielposition_titel,
+        lbl=_labels(sprache),
     )
 
 
@@ -71,6 +104,7 @@ def render_anschreiben(
     datum: str,
     kontakt_name: Optional[str],
     anlagen: Optional[list[str]] = None,
+    sprache: str = "de",
 ) -> bytes:
     """Render Anschreiben as PDF bytes."""
     html_text = _env().get_template("anschreiben.html.j2").render(
@@ -82,5 +116,6 @@ def render_anschreiben(
         kontakt_name=kontakt_name,
         ort=_extract_ort(profile.person.adresse),
         anlagen=anlagen or [],
+        lbl=_labels(sprache),
     )
     return HTML(string=html_text).write_pdf()

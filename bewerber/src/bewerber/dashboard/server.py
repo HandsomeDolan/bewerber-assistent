@@ -670,6 +670,7 @@ class _Handler(BaseHTTPRequestHandler):
                 paths=self.paths,
                 starttermin=starttermin,
                 gehalt=body.get("gehalt") or None,
+                sprache=body.get("sprache") or "de",
             ))
         except Exception as e:  # noqa: BLE001
             self._send_json(502, {"error": f"Tailor fehlgeschlagen: {e}"})
@@ -1266,6 +1267,7 @@ class _Handler(BaseHTTPRequestHandler):
         job_ids = body.get("job_ids", [])
         starttermin = (body.get("starttermin") or "").strip()
         gehalt = (body.get("gehalt") or "").strip() or None
+        sprache = body.get("sprache") or "de"
         if not isinstance(job_ids, list) or not job_ids:
             self._send_json(400, {"error": "job_ids (Liste) erforderlich"})
             return
@@ -1325,6 +1327,7 @@ class _Handler(BaseHTTPRequestHandler):
                     paths=paths,
                     starttermin=starttermin,
                     gehalt=gehalt,
+                    sprache=sprache,
                 ))
                 emit({
                     "event": "done", "index": i,

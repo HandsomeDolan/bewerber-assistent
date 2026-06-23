@@ -349,6 +349,14 @@ tr.expanded + tr.detail { display: table-row; }
       <input type="text" id="batch-tailor-gehalt" placeholder="z. B. 65.000 EUR brutto/Jahr"
              style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:4px;">
     </label>
+    <label class="field" style="display:block; margin-top:10px;">
+      <span style="display:block; font-weight:600; margin-bottom:4px;">Sprache</span>
+      <select id="batch-tailor-sprache"
+              style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:4px;">
+        <option value="de" selected>Deutsch</option>
+        <option value="en">English</option>
+      </select>
+    </label>
     <div style="margin-top:16px; text-align:right;">
       <button onclick="closeBatchTailorParamsModal()" style="padding:8px 14px; background:#fff; border:1px solid #ccc; border-radius:4px; cursor:pointer;">Abbrechen</button>
       <button onclick="startBatchTailor()" style="padding:8px 14px; background:#2266cc; color:#fff; border:1px solid #2266cc; border-radius:4px; cursor:pointer; font-weight:600; margin-left:6px;">▶ Starten</button>
@@ -634,6 +642,12 @@ function detailHtml(r) {
          </label>
          <label>Kontakt
            <input type="text" id="kontakt-${r.jid}" placeholder="optional: z. B. Frau Müller">
+         </label>
+         <label>Sprache
+           <select id="sprache-${r.jid}">
+             <option value="de" selected>Deutsch</option>
+             <option value="en">English</option>
+           </select>
          </label>
          <button class="action-btn primary" id="tailor-btn-${r.jid}" disabled onclick="createBewerbung('${r.jid}', event)">
            📄 Bewerbung erstellen
@@ -1062,6 +1076,7 @@ async function createBewerbung(jid, evt) {
       starttermin: start,
       gehalt: getFormValue(jid, "gehalt") || null,
       kontakt_name: getFormValue(jid, "kontakt") || null,
+      sprache: getFormValue(jid, "sprache") || "de",
     };
     const resp = await fetch("/api/tailor", {
       method: "POST",
@@ -1144,6 +1159,7 @@ async function startBatchTailor() {
   const start = document.getElementById("batch-tailor-start").value.trim();
   if (!start) { alert("Starttermin ist erforderlich."); return; }
   const gehalt = document.getElementById("batch-tailor-gehalt").value.trim() || null;
+  const sprache = document.getElementById("batch-tailor-sprache").value || "de";
   const jobIds = Array.from(SELECTED);
   closeBatchTailorParamsModal();
 
@@ -1173,7 +1189,7 @@ async function startBatchTailor() {
   const resp = await fetch("/api/batch-tailor", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({job_ids: jobIds, starttermin: start, gehalt}),
+    body: JSON.stringify({job_ids: jobIds, starttermin: start, gehalt, sprache}),
   });
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({}));

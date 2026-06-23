@@ -37,6 +37,7 @@ class TailorInput:
     paths: Paths
     starttermin: Optional[str] = None
     gehalt: Optional[str] = None
+    sprache: str = "de"  # "de" | "en" - Sprache der erzeugten Bewerbung
 
 
 @dataclass
@@ -54,7 +55,7 @@ def tailor(inp: TailorInput) -> TailorResult:
     master = _load_master(paths.master_profile)
     master_yaml_text = paths.master_profile.read_text(encoding="utf-8")
 
-    customized = customize_resume(master, inp.posting_text, llm=inp.llm)
+    customized = customize_resume(master, inp.posting_text, llm=inp.llm, sprache=inp.sprache)
     few_shot = _collect_few_shot_examples(paths.anschreiben_examples)
     anschreiben = generate_anschreiben(
         master_yaml_text=master_yaml_text,
@@ -64,6 +65,7 @@ def tailor(inp: TailorInput) -> TailorResult:
         llm=inp.llm,
         starttermin=inp.starttermin,
         gehalt=inp.gehalt,
+        sprache=inp.sprache,
     )
 
     out_dir = paths.bewerbungen / bewerbungsordner_name(inp.datum, inp.firma, inp.rolle)
@@ -75,17 +77,17 @@ def tailor(inp: TailorInput) -> TailorResult:
     anlagen_liste = ["Lebenslauf"] + anlagen_cfg.labels
 
     # Render PDFs and persist sources
-    datum_de = _to_german_date(inp.datum)
-    lebenslauf_pdf = render_lebenslauf(master, customized, zielposition_titel=inp.rolle)
+    datum_fmt = _format_date(inp.datum, inp.sprache)
+    lebenslauf_pdf = render_lebenslauf(master, customized, zielposition_titel=inp.rolle, sprache=inp.sprache)
     anschreiben_pdf = render_anschreiben(
         master, anschreiben,
-        firma=inp.firma, rolle=inp.rolle, datum=datum_de, kontakt_name=inp.kontakt_name,
-        anlagen=anlagen_liste,
+        firma=inp.firma, rolle=inp.rolle, datum=datum_fmt, kontakt_name=inp.kontakt_name,
+        anlagen=anlagen_liste, sprache=inp.sprache,
     )
     (out_dir / "lebenslauf.pdf").write_bytes(lebenslauf_pdf)
     (out_dir / "anschreiben.pdf").write_bytes(anschreiben_pdf)
     (out_dir / "lebenslauf.html").write_text(
-        _lebenslauf_html(master, customized, zielposition_titel=inp.rolle),
+        _lebenslauf_html(master, customized, zielposition_titel=inp.rolle, sprache=inp.sprache),
         encoding="utf-8",
     )
     (out_dir / "anschreiben.md").write_text(anschreiben.to_markdown(), encoding="utf-8")
@@ -154,10 +156,21 @@ def _load_master(path: Path) -> MasterProfile:
     return MasterProfile(**data)
 
 
-def _to_german_date(iso: str) -> str:
-    """`2026-06-12` → `12.06.2026`"""
+_EN_MONTHS = ["January", "February", "March", "April", "May", "June",
+              "July", "August", "September", "October", "November", "December"]
+
+
+def _format_date(iso: str, sprache: str = "de") -> str:
+    """`2026-06-12` → `12.06.2026` (de) bzw. `June 12, 2026` (en)."""
     y, m, d = iso.split("-")
+    if sprache == "en":
+        return f"{_EN_MONTHS[int(m) - 1]} {int(d)}, {y}"
     return f"{d}.{m}.{y}"
+
+
+# Backward-compatible alias
+def _to_german_date(iso: str) -> str:
+    return _format_date(iso, "de")
 
 
 def _update_state_for_tailored(
