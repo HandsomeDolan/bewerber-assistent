@@ -1345,7 +1345,7 @@ def test_onboarding_status_missing_job_id_returns_400(running_server):
     assert code == 400
 
 
-def test_run_onboarding_extraction_writes_master_profile_yaml(tmp_path, mocker):
+def test_run_onboarding_extraction_writes_master_profile_yaml(tmp_path, mocker, monkeypatch):
     """Background-Worker integration: bei Erfolg landet master_profile.yaml + summary."""
     from bewerber.dashboard import server as srv
     from bewerber.profile.extractor import ExtractedProfile
@@ -1367,11 +1367,13 @@ def test_run_onboarding_extraction_writes_master_profile_yaml(tmp_path, mocker):
     )
     mocker.patch("bewerber.shared.llm.LLMClient.for_scoring", return_value=mocker.Mock())
 
+    # Eigener isolierter Workspace (zusaetzlich zum conftest-Guard, macht die
+    # Absicht explizit): NIEMALS gegen den echten Workspace schreiben.
+    monkeypatch.setenv("BEWERBER_WORKSPACE", str(tmp_path / "ws"))
     paths = Paths()
     paths.bewerber_dir.mkdir(parents=True, exist_ok=True)
-    # Bestehendes master_profile.yaml entfernen, sodass Worker es frisch anlegt
-    if paths.master_profile.exists():
-        paths.master_profile.unlink()
+    # frisch: kein master_profile.yaml vorhanden -> Worker legt es an
+    assert not paths.master_profile.exists()
 
     upload_dir = tmp_path / "uploads"
     upload_dir.mkdir()
