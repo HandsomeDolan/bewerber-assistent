@@ -17,9 +17,11 @@ Fallback: Wenn Playwright crashed (z.B. LinkedIn anti-bot triggert
 Damit gibt es keinen PDF-Snapshot, aber wenigstens den Text - die
 nachgelagerten Schritte (Scoring, Customize) brauchen nur den Text.
 """
+import json
 import logging
 import re
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import requests
 from lxml import html as lxml_html
@@ -80,6 +82,24 @@ def snapshot_url(url: str, out_dir: Path, *, timeout_ms: int = DEFAULT_TIMEOUT_M
       - posting.pdf  (nur bei erfolgreichem Playwright-Lauf)
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Ashby ist eine reine JS-SPA: der HTML-Stand enthaelt fast keinen Text,
+    # der Job-Inhalt wird erst per API nachgeladen. Weder Playwright (auf dem
+    # RasPi gar nicht erst verfuegbar) noch requests liefern brauchbaren Text.
+    # Ashby hat aber eine oeffentliche, unauthentifizierte Posting-API. Greift
+    # fuer direkte jobs.ashbyhq.com-URLs UND fuer eingebettete Boards wie
+    # n8n.io/careers/?ashby_jid=... (dort steht die Beschreibung weit unten und
+    # wird vom generischen Extraktor nicht zuverlaessig erkannt).
+    orgs, job_id = _resolve_ashby(url)
+    if job_id is not None:
+        try:
+            return _snapshot_via_ashby_api(orgs, job_id, out_dir)
+        except Exception as e:  # noqa: BLE001 - API weg/umbenannt -> normaler Weg
+            log.warning(
+                "[snapshot] Ashby-API fuer %s fehlgeschlagen (%s). Falle auf den normalen Weg zurueck.",
+                url, e,
+            )
+
     try:
         return _snapshot_via_playwright(url, out_dir, timeout_ms)
     except Exception as e:  # noqa: BLE001 - crashes / timeouts / nav errors -> versuche requests
@@ -88,6 +108,108 @@ def snapshot_url(url: str, out_dir: Path, *, timeout_ms: int = DEFAULT_TIMEOUT_M
             url, e,
         )
         return _snapshot_via_requests(url, out_dir)
+
+
+# Direkte Ashby-Posting-URLs: jobs.ashbyhq.com/<orgSlug>/<jobId>[?...]
+_ASHBY_HOST_RE = re.compile(r"(?:^|\.)ashbyhq\.com$", re.IGNORECASE)
+_UUID_RE = re.compile(r"[0-9a-fA-F-]{16,}")
+
+
+def _resolve_ashby(url: str) -> tuple[list[str], str | None]:
+    """Erkennt Ashby-Postings (direkt ODER eingebettet).
+
+    Liefert (org_kandidaten, job_id). job_id ist None, wenn die URL kein
+    Ashby-Posting ist. Fuer eingebettete Boards (?ashby_jid=...) ist der
+    Org-Slug nicht in der URL enthalten - wir leiten Kandidaten aus dem Host
+    ab und probieren sie in _snapshot_via_ashby_api der Reihe nach durch.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:  # noqa: BLE001
+        return [], None
+    host = (parsed.netloc or "").split(":")[0]
+
+    # Fall 1: direkte jobs.ashbyhq.com/<org>/<jobId>-URL
+    if _ASHBY_HOST_RE.search(host):
+        parts = [p for p in (parsed.path or "").split("/") if p]
+        if len(parts) >= 2 and _UUID_RE.fullmatch(parts[1]):
+            return [parts[0]], parts[1]
+
+    # Fall 2: eingebettetes Board, z.B. n8n.io/careers/?ashby_jid=<jobId>
+    qs = parse_qs(parsed.query or "")
+    jid = (qs.get("ashby_jid") or [""])[0].strip()
+    if jid and _UUID_RE.fullmatch(jid):
+        return _ashby_org_candidates(host), jid
+
+    return [], None
+
+
+def _ashby_org_candidates(host: str) -> list[str]:
+    """Plausible Ashby-Board-Slugs aus dem Host raten (n8n.io -> 'n8n')."""
+    labels = [l for l in host.lower().split(".") if l and l != "www"]
+    _TLDS = {"com", "io", "co", "net", "org", "ai", "dev", "app", "jobs", "careers", "uk", "de"}
+    candidates: list[str] = []
+    # Haupt-Label: vorletztes (n8n.io -> n8n, careers.acme.io -> acme), dann erstes.
+    if len(labels) >= 2:
+        candidates.append(labels[-2])
+    candidates += [l for l in labels if l not in _TLDS]
+    # dedupe unter Beibehaltung der Reihenfolge
+    seen: set[str] = set()
+    return [c for c in candidates if not (c in seen or seen.add(c))]
+
+
+def _snapshot_via_ashby_api(
+    orgs: list[str], job_id: str, out_dir: Path, *, timeout_s: int = 20,
+) -> str:
+    """Holt das Posting ueber die oeffentliche Ashby-Job-Board-API.
+
+    Probiert die Org-Kandidaten der Reihe nach; nimmt den ersten, der das
+    Posting enthaelt. Schreibt posting.html (die descriptionHtml), kein PDF.
+    Die nachgelagerte LLM-Pipeline braucht nur den Text.
+    """
+    job = None
+    tried: list[str] = []
+    for org in orgs:
+        api = f"https://api.ashbyhq.com/posting-api/job-board/{org}?includeCompensation=true"
+        try:
+            resp = requests.get(api, headers={"User-Agent": USER_AGENT}, timeout=timeout_s)
+            resp.raise_for_status()
+            jobs = (resp.json() or {}).get("jobs", [])
+        except Exception:  # noqa: BLE001 - falscher Slug -> naechster Kandidat
+            tried.append(org)
+            continue
+        tried.append(org)
+        job = next(
+            (j for j in jobs if j.get("id") == job_id or job_id in (j.get("jobUrl") or "")),
+            None,
+        )
+        if job is not None:
+            break
+
+    if job is None:
+        raise RuntimeError(
+            f"Job {job_id} in keinem Ashby-Board gefunden (geprueft: {', '.join(tried) or '-'}) "
+            f"- evtl. abgelaufen, unveroeffentlicht oder anderer Board-Slug."
+        )
+
+    desc_html = job.get("descriptionHtml") or ""
+    (out_dir / "posting.html").write_text(desc_html, encoding="utf-8")
+
+    # Strukturierte Felder voranstellen - die SPA zeigt sie auch separat an.
+    header_lines = [f"# {job.get('title', '').strip()}"]
+    if job.get("location"):
+        header_lines.append(f"Standort: {job['location']}")
+    if job.get("employmentType"):
+        header_lines.append(f"Beschaeftigungsart: {job['employmentType']}")
+    if job.get("department") or job.get("team"):
+        header_lines.append(f"Bereich: {job.get('department') or ''} / {job.get('team') or ''}".strip(" /"))
+    header = "\n".join(line for line in header_lines if line.strip())
+
+    body = job.get("descriptionPlain") or extract_job_text(desc_html)
+    text = f"{header}\n\n{body}".strip()
+    if not text or len(text) < 100:
+        raise RuntimeError(f"Ashby-API lieferte fuer {job_id} zu wenig Text ({len(text)} Zeichen).")
+    return text
 
 
 def _snapshot_via_playwright(url: str, out_dir: Path, timeout_ms: int) -> str:
