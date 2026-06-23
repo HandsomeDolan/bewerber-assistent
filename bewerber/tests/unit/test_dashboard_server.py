@@ -1838,3 +1838,46 @@ def test_job_files_excludes_internal_files(running_server, monkeypatch):
     assert code == 200
     names = {f["name"] for f in json.loads(body)["files"]}
     assert names == {"lebenslauf.pdf", "anschreiben.pdf", "Zeugnis.pdf"}
+
+
+def test_delete_job_removes_entry_and_dir_within_bewerbungen(running_server):
+    from bewerber.shared.paths import Paths
+    up = Paths(user=TEST_USER)
+    job_dir = up.bewerbungen / "2026-06-20_Acme_Dev"
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "lebenslauf.pdf").write_text("x")
+
+    state = load_state(up.state_json)
+    state.jobs["arbeitsagentur-x1"].tailored_dir = str(job_dir)
+    save_state(up.state_json, state)
+
+    code, data = _post_json(running_server, "/api/delete-job", {"job_id": "arbeitsagentur-x1"})
+    assert code == 200
+    assert data["ok"] and data["dir_deleted"] is True
+    assert not job_dir.exists()
+    assert "arbeitsagentur-x1" not in load_state(up.state_json).jobs
+
+
+def test_delete_job_keeps_dir_outside_bewerbungen(running_server, tmp_path):
+    from bewerber.shared.paths import Paths
+    up = Paths(user=TEST_USER)
+    outside = tmp_path / "fremd"
+    outside.mkdir()
+    (outside / "wichtig.pdf").write_text("x")
+
+    state = load_state(up.state_json)
+    state.jobs["arbeitsagentur-x1"].tailored_dir = str(outside)
+    save_state(up.state_json, state)
+
+    code, data = _post_json(running_server, "/api/delete-job", {"job_id": "arbeitsagentur-x1"})
+    assert code == 200
+    assert data["ok"] and data["dir_deleted"] is False
+    assert outside.exists()  # ausserhalb Bewerbungen/ -> NICHT geloescht
+    assert "arbeitsagentur-x1" not in load_state(up.state_json).jobs
+
+
+def test_dashboard_contains_delete_function(running_server):
+    code, body = _get(running_server, "/")
+    assert code == 200
+    assert "deleteJob" in body
+    assert "/api/delete-job" in body

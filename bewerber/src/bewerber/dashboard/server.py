@@ -51,6 +51,7 @@ import json
 import logging
 import mimetypes
 import os
+import shutil
 import subprocess
 import threading
 import uuid
@@ -451,6 +452,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_mark()
             elif self.path == "/api/note":
                 self._handle_note()
+            elif self.path == "/api/delete-job":
+                self._handle_delete_job()
             elif self.path == "/api/open-folder":
                 self._handle_open_folder()
             elif self.path == "/api/searches":
@@ -724,6 +727,36 @@ class _Handler(BaseHTTPRequestHandler):
         job.notes = f"{job.notes}\n{entry}".strip() if job.notes else entry
         save_state(self.paths.state_json, state)
         self._send_json(200, {"ok": True, "job_id": job_id})
+
+    def _handle_delete_job(self) -> None:
+        """Loescht einen Job aus state.json und (falls innerhalb des
+        Bewerbungen-Ordners) das zugehoerige tailored_dir von der Platte."""
+        body = self._read_json()
+        job_id = body.get("job_id")
+        if not job_id:
+            self._send_json(400, {"error": "job_id required"})
+            return
+
+        state = load_state(self.paths.state_json)
+        job = state.jobs.get(job_id)
+        if job is None:
+            self._send_json(404, {"error": f"job {job_id!r} not found"})
+            return
+
+        tailored_dir = job.tailored_dir
+        del state.jobs[job_id]
+        save_state(self.paths.state_json, state)
+
+        dir_deleted = False
+        if tailored_dir:
+            td = Path(tailored_dir).resolve()
+            base = self.paths.bewerbungen.resolve()
+            # Nur loeschen, wenn td WIRKLICH unterhalb des Bewerbungen-Ordners liegt.
+            if td.is_dir() and (td == base or str(td).startswith(str(base) + os.sep)):
+                shutil.rmtree(td, ignore_errors=True)
+                dir_deleted = not td.exists()
+
+        self._send_json(200, {"ok": True, "job_id": job_id, "dir_deleted": dir_deleted})
 
     def _handle_batch_add(self) -> None:
         """Streaming-Endpoint: jede URL einzeln verarbeiten + Events live raussenden.

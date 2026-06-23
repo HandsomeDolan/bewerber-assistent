@@ -463,6 +463,8 @@ function detailHtml(r) {
     ? `<button class="folder-btn" onclick="createBriefing('${r.jid}', event)" id="briefing-btn-${r.jid}">📋 Briefing erstellen</button>
        <span class="briefing-status" id="briefing-status-${r.jid}" style="margin-left:8px; font-size:12px;"></span>`
     : "";
+  const deleteBtn = `<button class="folder-btn" style="border-color:#c33; color:#c33;"
+       onclick="deleteJob('${r.jid}', event)">&#x1f5d1; Loeschen</button>`;
   const linkPost = r.raw.url ? `<a href="${escapeAttr(r.raw.url)}" target="_blank">Original-Posting</a>` : "";
   const linkApp = r.application_link ? `<a href="${escapeAttr(r.application_link)}" target="_blank">Eingereichte Bewerbung</a>` : "";
   const isApplied = r.status === "applied" || r.status === "interview" || r.status === "offer";
@@ -505,7 +507,7 @@ function detailHtml(r) {
     <select onchange="changeStatus('${r.jid}', this.value, event)">${statusOptions}</select>
   </label>`;
   return `
-    <div class="links">${linkPost} ${linkCv} ${linkAns} ${linkApp} ${folderBtn} ${briefingBtn}</div>
+    <div class="links">${linkPost} ${linkCv} ${linkAns} ${linkApp} ${folderBtn} ${briefingBtn} ${deleteBtn}</div>
     <div style="margin-top:6px;">${appliedToggle} ${statusSelect}</div>
     <div style="margin-top:6px;">${tailorBtn}</div>
     <h4>Scoring</h4>
@@ -727,6 +729,32 @@ async function changeStatus(jid, newStatus, evt) {
     applyFilters();  // Tabelle neu rendern -> Badge + Beworben-Datum aktualisieren
   } catch (e) {
     alert("Status-Aenderung fehlgeschlagen: " + e.message);
+  }
+}
+
+async function deleteJob(jid, evt) {
+  if (evt) evt.stopPropagation();
+  if (!IS_HTTP) {
+    alert("Loeschen geht nur ueber 'bewerber serve' (HTTP).");
+    return;
+  }
+  const job = STATE.jobs[jid];
+  const label = job ? `${job.raw.company} – ${job.raw.title}` : jid;
+  if (!confirm(`Ausschreibung wirklich loeschen?\n\n${label}\n\nDer Eintrag und die getailorten Dateien werden entfernt.`)) {
+    return;
+  }
+  try {
+    const resp = await fetch("/api/delete-job", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({job_id: jid}),
+    });
+    const body = await resp.json();
+    if (!resp.ok) throw new Error(body.error || "unbekannter Fehler");
+    delete STATE.jobs[jid];
+    applyFilters();
+  } catch (e) {
+    alert("Loeschen fehlgeschlagen: " + e.message);
   }
 }
 
