@@ -185,6 +185,14 @@ tr.expanded + tr.detail { display: table-row; }
 .view-toggle button.active { background: #2266cc; color: #fff; border-color: #2266cc; }
 .view-toggle button:first-child { border-radius: 4px 0 0 4px; }
 .view-toggle button:last-child { border-radius: 0 4px 4px 0; }
+.kanban-card { transition: box-shadow .1s; }
+.kanban-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+/* Trello-Style Karten-Modal */
+.card-modal { position: fixed; inset: 0; z-index: 1000; }
+.card-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
+.card-modal-content { position: relative; max-width: 900px; width: 92%; max-height: 88vh; overflow-y: auto; margin: 4vh auto; background: #fff; border-radius: 8px; padding: 22px 26px; box-shadow: 0 10px 40px rgba(0,0,0,0.35); }
+.card-modal-close { position: absolute; top: 6px; right: 14px; border: none; background: none; font-size: 30px; line-height: 1; cursor: pointer; color: #999; }
+.card-modal-close:hover { color: #333; }
 </style>
 </head>
 <body>
@@ -367,6 +375,14 @@ tr.expanded + tr.detail { display: table-row; }
   <button id="view-kanban-btn" onclick="setView('kanban')">▦ Kanban</button>
 </div>
 <div id="kanban-view"></div>
+
+<div id="card-modal" class="card-modal" style="display:none;">
+  <div class="card-modal-backdrop" onclick="closeCardModal()"></div>
+  <div class="card-modal-content">
+    <button class="card-modal-close" onclick="closeCardModal()" title="Schliessen" aria-label="Schliessen">&times;</button>
+    <div id="card-modal-body"></div>
+  </div>
+</div>
 <table id="jobs-table">
   <thead><tr>
     <th class="select-col"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" title="Sichtbare auswaehlen"></th>
@@ -488,6 +504,7 @@ function renderRows(rows) {
 function renderKanban(rows) {
   const wrap = document.getElementById("kanban-view");
   wrap.innerHTML = "";
+  tbody.innerHTML = "";  // Tabelle leeren -> keine doppelten Element-IDs mit dem Karten-Modal
   const byStatus = {};
   for (const r of rows) (byStatus[r.status] = byStatus[r.status] || []).push(r);
 
@@ -542,8 +559,27 @@ function buildKanbanCard(r) {
               onclick="deleteJob('${r.jid}', event)">&#x1f5d1;</button>
     </div>`;
   card.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", r.jid));
+  // Klick auf die Karte (nicht auf den Loeschen-Button) -> Details im Modal
+  card.addEventListener("click", () => openCardModal(r.jid));
   return card;
 }
+
+function openCardModal(jid) {
+  const job = STATE.jobs[jid];
+  if (!job) return;
+  const r = { jid, ...job };
+  document.getElementById("card-modal-body").innerHTML = detailHtml(r);
+  document.getElementById("card-modal").style.display = "block";
+}
+
+function closeCardModal() {
+  document.getElementById("card-modal").style.display = "none";
+  document.getElementById("card-modal-body").innerHTML = "";
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeCardModal();
+});
 
 function toggleDetail(tr, r) {
   const next = tr.nextElementSibling;
