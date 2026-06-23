@@ -262,6 +262,22 @@ def _open_folder_macos(path: str) -> bool:
         return False
 
 
+# Datei-Endungen, die NICHT zu den Bewerbungsunterlagen gehoeren (interne
+# Quell-/Log-Dateien). Plus: alle "posting.*"-Dateien (die Job-Ausschreibung
+# selbst) werden ausgeblendet.
+_NON_DELIVERABLE_SUFFIXES = {".md", ".html", ".json", ".yaml"}
+
+
+def _is_deliverable(rel_name: str) -> bool:
+    """True, wenn die Datei in Download-ZIP/Datei-Liste gehoert."""
+    p = Path(rel_name)
+    if p.suffix.lower() in _NON_DELIVERABLE_SUFFIXES:
+        return False
+    if p.stem.lower() == "posting":
+        return False
+    return True
+
+
 class _Handler(BaseHTTPRequestHandler):
 
     def _send_json(self, code: int, payload: dict) -> None:
@@ -1369,7 +1385,10 @@ class _Handler(BaseHTTPRequestHandler):
         files = []
         for p in sorted(td.rglob("*")):
             if p.is_file() and not p.is_symlink():
-                files.append({"name": str(p.relative_to(td)), "size": p.stat().st_size})
+                rel = str(p.relative_to(td))
+                if not _is_deliverable(rel):
+                    continue
+                files.append({"name": rel, "size": p.stat().st_size})
         self._send_json(200, {"files": files})
 
     def _handle_download(self, query: dict) -> None:
@@ -1404,7 +1423,10 @@ class _Handler(BaseHTTPRequestHandler):
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for p in sorted(td.rglob("*")):
                 if p.is_file() and not p.is_symlink():
-                    zf.write(p, arcname=str(p.relative_to(td)))
+                    rel = str(p.relative_to(td))
+                    if not _is_deliverable(rel):
+                        continue
+                    zf.write(p, arcname=rel)
         data = buf.getvalue()
         self.send_response(200)
         self.send_header("Content-Type", "application/zip")

@@ -1800,3 +1800,41 @@ def test_dashboard_uses_download_not_fileurl(running_server):
     assert "/api/download-zip?job_id=" in html
     # Keine file://-Links mehr (funktionieren remote nicht)
     assert "file://" not in html
+
+
+def test_is_deliverable_filters_internal_and_posting_files():
+    from bewerber.dashboard.server import _is_deliverable
+    # behalten
+    assert _is_deliverable("lebenslauf.pdf")
+    assert _is_deliverable("anschreiben.pdf")
+    assert _is_deliverable("Arbeitszeugnis_Magna_Eigenwillig.pdf")
+    # raus: interne Quell-/Log-Dateien
+    assert not _is_deliverable("anschreiben.md")
+    assert not _is_deliverable("lebenslauf.html")
+    assert not _is_deliverable("tailoring_log.json")
+    assert not _is_deliverable("posting_meta.yaml")
+    # raus: posting.* (egal welche Endung)
+    assert not _is_deliverable("posting.txt")
+    assert not _is_deliverable("posting.pdf")
+    assert not _is_deliverable("posting.html")
+
+
+def test_job_files_excludes_internal_files(running_server, monkeypatch):
+    """job-files listet nur Deliverables (keine .md/.html/.json/.yaml/posting.*)."""
+    from bewerber.shared.paths import Paths
+    up = Paths(user=TEST_USER)
+    job_dir = up.bewerbungen / "2026-06-20_Acme_Dev"
+    job_dir.mkdir(parents=True, exist_ok=True)
+    for name in ["lebenslauf.pdf", "anschreiben.pdf", "anschreiben.md",
+                 "lebenslauf.html", "tailoring_log.json", "posting_meta.yaml",
+                 "posting.txt", "posting.pdf", "Zeugnis.pdf"]:
+        (job_dir / name).write_text("x")
+
+    state = load_state(up.state_json)
+    state.jobs["arbeitsagentur-x1"].tailored_dir = str(job_dir)
+    save_state(up.state_json, state)
+
+    code, body = _get(running_server, "/api/job-files?job_id=arbeitsagentur-x1")
+    assert code == 200
+    names = {f["name"] for f in json.loads(body)["files"]}
+    assert names == {"lebenslauf.pdf", "anschreiben.pdf", "Zeugnis.pdf"}
