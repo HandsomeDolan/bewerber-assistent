@@ -1881,3 +1881,11 @@ def test_dashboard_contains_delete_function(running_server):
     assert code == 200
     assert "deleteJob" in body
     assert "/api/delete-job" in body
+
+
+def test_dashboard_contains_kanban_view(running_server):
+    code, body = _get(running_server, "/")
+    assert code == 200
+    assert 'id="kanban-view"' in body
+    assert "renderKanban" in body
+    assert "function setView" in body

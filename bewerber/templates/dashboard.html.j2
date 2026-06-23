@@ -170,6 +170,21 @@ tr.expanded + tr.detail { display: table-row; }
   border: 1px solid #c0c8d0; border-radius: 3px;
   font-size: 12px; min-width: 220px;
 }
+#kanban-view { display: none; gap: 10px; overflow-x: auto; padding: 8px 0; }
+#kanban-view.active { display: flex; }
+.kanban-col { flex: 1 0 200px; min-width: 200px; background: #f4f4f6; border-radius: 6px; padding: 6px; }
+.kanban-col-title { font-weight: 700; font-size: 12px; text-transform: uppercase; color: #555; padding: 4px 6px; display: flex; justify-content: space-between; }
+.kanban-col.dragover { outline: 2px dashed #2266cc; outline-offset: -2px; }
+.kanban-card { background: #fff; border: 1px solid #ddd; border-radius: 5px; padding: 8px; margin: 6px 0; cursor: grab; font-size: 13px; }
+.kanban-card:active { cursor: grabbing; }
+.kanban-card .kc-company { font-weight: 700; }
+.kanban-card .kc-title { color: #333; }
+.kanban-card .kc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+.kanban-done-wrap { flex: 0 0 auto; }
+.view-toggle button { padding: 5px 12px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+.view-toggle button.active { background: #2266cc; color: #fff; border-color: #2266cc; }
+.view-toggle button:first-child { border-radius: 4px 0 0 4px; }
+.view-toggle button:last-child { border-radius: 0 4px 4px 0; }
 </style>
 </head>
 <body>
@@ -347,6 +362,11 @@ tr.expanded + tr.detail { display: table-row; }
   </div>
 </div>
 
+<div class="view-toggle" style="margin: 8px 0;">
+  <button id="view-table-btn" onclick="setView('table')">▤ Tabelle</button>
+  <button id="view-kanban-btn" onclick="setView('kanban')">▦ Kanban</button>
+</div>
+<div id="kanban-view"></div>
 <table id="jobs-table">
   <thead><tr>
     <th class="select-col"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" title="Sichtbare auswaehlen"></th>
@@ -372,6 +392,30 @@ const fStatus = document.getElementById("filter-status");
 const fScore = document.getElementById("filter-score");
 const fBoard = document.getElementById("filter-board");
 let currentSort = { key: "score", dir: -1 };
+
+let currentView = localStorage.getItem("bewerber_view") || "table";
+const KANBAN_COLUMNS = [
+  {key: "discovered", label: "Entdeckt"},
+  {key: "shortlisted", label: "Vorgemerkt"},
+  {key: "tailored", label: "Getailored"},
+  {key: "applied", label: "Beworben"},
+  {key: "interview", label: "Eingeladen"},
+  {key: "offer", label: "Angebot"},
+];
+const KANBAN_DONE = ["rejected", "withdrawn", "declined"];
+
+function setView(v) {
+  currentView = v;
+  localStorage.setItem("bewerber_view", v);
+  const table = document.getElementById("jobs-table");
+  const kanban = document.getElementById("kanban-view");
+  const isKanban = v === "kanban";
+  table.style.display = isKanban ? "none" : "";
+  kanban.classList.toggle("active", isKanban);
+  document.getElementById("view-table-btn").classList.toggle("active", !isKanban);
+  document.getElementById("view-kanban-btn").classList.toggle("active", isKanban);
+  applyFilters();
+}
 
 function applyFilters() {
   const query = (q.value || "").toLowerCase();
@@ -403,7 +447,8 @@ function applyFilters() {
     else { av = a[key] || ""; bv = b[key] || ""; }
     return (av < bv ? -1 : av > bv ? 1 : 0) * currentSort.dir;
   });
-  renderRows(rows);
+  if (currentView === "kanban") renderKanban(rows);
+  else renderRows(rows);
 }
 
 function renderRows(rows) {
@@ -438,6 +483,66 @@ function renderRows(rows) {
     detail.style.display = "none";
     tbody.appendChild(detail);
   }
+}
+
+function renderKanban(rows) {
+  const wrap = document.getElementById("kanban-view");
+  wrap.innerHTML = "";
+  const byStatus = {};
+  for (const r of rows) (byStatus[r.status] = byStatus[r.status] || []).push(r);
+
+  for (const col of KANBAN_COLUMNS) {
+    wrap.appendChild(buildKanbanColumn(col.key, col.label, byStatus[col.key] || []));
+  }
+  // "Erledigt"-Sammelspalte (rejected/withdrawn/declined), eingeklappt
+  const doneRows = KANBAN_DONE.flatMap(s => byStatus[s] || []);
+  const done = document.createElement("details");
+  done.className = "kanban-done-wrap";
+  done.innerHTML = `<summary class="kanban-col-title" style="cursor:pointer;">Erledigt <span>${doneRows.length}</span></summary>`;
+  const inner = document.createElement("div");
+  inner.style.cssText = "display:flex; gap:10px;";
+  for (const s of KANBAN_DONE) {
+    inner.appendChild(buildKanbanColumn(s, statusLabel(s), byStatus[s] || []));
+  }
+  done.appendChild(inner);
+  wrap.appendChild(done);
+}
+
+function buildKanbanColumn(statusKey, label, rows) {
+  const col = document.createElement("div");
+  col.className = "kanban-col";
+  col.dataset.status = statusKey;
+  col.innerHTML = `<div class="kanban-col-title">${label} <span>${rows.length}</span></div>`;
+  for (const r of rows) col.appendChild(buildKanbanCard(r));
+  col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("dragover"); });
+  col.addEventListener("dragleave", () => col.classList.remove("dragover"));
+  col.addEventListener("drop", (e) => {
+    e.preventDefault();
+    col.classList.remove("dragover");
+    const jid = e.dataTransfer.getData("text/plain");
+    if (jid && STATE.jobs[jid] && STATE.jobs[jid].status !== statusKey) {
+      changeStatus(jid, statusKey);  // aktualisiert STATE + rendert via applyFilters neu
+    }
+  });
+  return col;
+}
+
+function buildKanbanCard(r) {
+  const score = (r.scoring && r.scoring.fit_score) || 0;
+  const card = document.createElement("div");
+  card.className = "kanban-card";
+  card.draggable = true;
+  card.dataset.jid = r.jid;
+  card.innerHTML = `
+    <div class="kc-company">${escapeHtml(r.raw.company)}</div>
+    <div class="kc-title">${escapeHtml(r.raw.title)}</div>
+    <div class="kc-foot">
+      <span class="score score-${score}" style="padding:1px 6px; border-radius:3px;">${score || "—"}</span>
+      <button class="folder-btn" style="border-color:#c33; color:#c33;"
+              onclick="deleteJob('${r.jid}', event)">&#x1f5d1;</button>
+    </div>`;
+  card.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", r.jid));
+  return card;
 }
 
 function toggleDetail(tr, r) {
@@ -1348,7 +1453,7 @@ document.querySelectorAll("th[data-sort]").forEach(th => {
   });
 });
 [q, fStatus, fScore, fBoard].forEach(el => el.addEventListener("input", applyFilters));
-applyFilters();
+setView(currentView);  // ruft applyFilters() intern auf
 </script>
 </body>
 </html>
