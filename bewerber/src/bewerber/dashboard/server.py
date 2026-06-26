@@ -270,7 +270,13 @@ _NON_DELIVERABLE_SUFFIXES = {".md", ".html", ".json", ".yaml"}
 
 
 def _is_deliverable(rel_name: str) -> bool:
-    """True, wenn die Datei in Download-ZIP/Datei-Liste gehoert."""
+    """True, wenn die Datei in Download-ZIP/Datei-Liste gehoert.
+
+    Reiner ANZEIGE-/Verpackungs-Filter (Datei-Liste + ZIP), KEINE
+    Zugriffskontrolle: der Einzeldatei-Download (_handle_download) ist
+    bewusst NICHT gefiltert - er ist pfad-validiert und nutzergebunden,
+    erlaubt aber gezielt auch interne Dateien (z.B. posting.txt).
+    """
     p = Path(rel_name)
     if p.suffix.lower() in _NON_DELIVERABLE_SUFFIXES:
         return False
@@ -1428,6 +1434,8 @@ class _Handler(BaseHTTPRequestHandler):
         self._send_json(200, {"files": files})
 
     def _handle_download(self, query: dict) -> None:
+        # Einzeldatei-Download bewusst OHNE _is_deliverable-Filter (siehe dort):
+        # pfad-validiert + nutzergebunden, erlaubt gezielten Zugriff auf alle Dateien.
         job_id = (query.get("job_id") or [""])[0]
         rel = (query.get("file") or [""])[0]
         td = self._resolve_job_dir(job_id)

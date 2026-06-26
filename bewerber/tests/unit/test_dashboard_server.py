@@ -1819,7 +1819,7 @@ def test_is_deliverable_filters_internal_and_posting_files():
     assert not _is_deliverable("posting.html")
 
 
-def test_job_files_excludes_internal_files(running_server, monkeypatch):
+def test_job_files_excludes_internal_files(running_server):
     """job-files listet nur Deliverables (keine .md/.html/.json/.yaml/posting.*)."""
     from bewerber.shared.paths import Paths
     up = Paths(user=TEST_USER)

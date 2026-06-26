@@ -560,7 +560,7 @@ function buildKanbanCard(r) {
   card.dataset.jid = r.jid;
   card.innerHTML = `
     <div class="kc-company">${escapeHtml(r.raw.company)}</div>
-    <div class="kc-title">${escapeHtml(r.raw.title)}</div>
+    <div class="kc-title">${escapeHtml(r.raw.title)}${arbeitsmodellBadge(r.raw.arbeitsmodell)}</div>
     <div class="kc-foot">
       <span class="score score-${score}" style="padding:1px 6px; border-radius:3px;">${score || "—"}</span>
       <button class="folder-btn" style="border-color:#c33; color:#c33;"
