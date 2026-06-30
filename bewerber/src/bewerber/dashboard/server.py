@@ -71,7 +71,7 @@ from bewerber.shared.paths import Paths
 from bewerber.shared.state import load_state, save_state
 from bewerber.shared.state_schema import JobStatus, StatusHistoryEntry
 from bewerber.tailoring.templates_store import BuiltinTemplateStore, TemplateChoice
-from bewerber.shared.settings import load_settings, save_settings, UserSettings
+from bewerber.shared.settings import load_settings, save_settings
 from bewerber.dashboard import auth
 from bewerber.dashboard.render import (
     render_anlagen_editor,

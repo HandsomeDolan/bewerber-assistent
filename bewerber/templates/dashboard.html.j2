@@ -1573,8 +1573,9 @@ document.querySelectorAll("th[data-sort]").forEach(th => {
   });
 });
 [q, fStatus, fScore, fBoard].forEach(el => el.addEventListener("input", applyFilters));
-loadTemplateSets().then(() => { fillDefaultSet(); applyFilters(); });
-setView(currentView);  // ruft applyFilters() intern auf
+// Erst Sets laden, dann rendern: vermeidet leere Design-Dropdowns beim ersten Paint
+// und den doppelten applyFilters-Lauf. loadTemplateSets faengt Fehler intern ab.
+loadTemplateSets().then(() => { fillDefaultSet(); setView(currentView); });
 </script>
 </body>
 </html>
