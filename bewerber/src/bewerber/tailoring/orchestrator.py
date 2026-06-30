@@ -1,7 +1,7 @@
 import hashlib
 import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 import yaml
@@ -22,6 +22,7 @@ from bewerber.tailoring.anschreiben import (
 )
 from bewerber.tailoring.customize import CustomizedResume, customize_resume
 from bewerber.tailoring.render import render_anschreiben, render_lebenslauf, _lebenslauf_html
+from bewerber.tailoring.templates_store import BuiltinTemplateStore, TemplateChoice
 
 
 @dataclass
@@ -38,6 +39,7 @@ class TailorInput:
     starttermin: Optional[str] = None
     gehalt: Optional[str] = None
     sprache: str = "de"  # "de" | "en" - Sprache der erzeugten Bewerbung
+    template: TemplateChoice = field(default_factory=TemplateChoice)
 
 
 @dataclass
@@ -77,17 +79,23 @@ def tailor(inp: TailorInput) -> TailorResult:
     anlagen_liste = ["Lebenslauf"] + anlagen_cfg.labels
 
     # Render PDFs and persist sources
+    store = BuiltinTemplateStore()
+    cv_tpl = store.template_path(inp.template.cv(), "lebenslauf")
+    ans_tpl = store.template_path(inp.template.anschreiben(), "anschreiben")
+
     datum_fmt = _format_date(inp.datum, inp.sprache)
-    lebenslauf_pdf = render_lebenslauf(master, customized, zielposition_titel=inp.rolle, sprache=inp.sprache)
+    lebenslauf_pdf = render_lebenslauf(master, customized, zielposition_titel=inp.rolle,
+                                       sprache=inp.sprache, template=cv_tpl)
     anschreiben_pdf = render_anschreiben(
         master, anschreiben,
         firma=inp.firma, rolle=inp.rolle, datum=datum_fmt, kontakt_name=inp.kontakt_name,
-        anlagen=anlagen_liste, sprache=inp.sprache,
+        anlagen=anlagen_liste, sprache=inp.sprache, template=ans_tpl,
     )
     (out_dir / "lebenslauf.pdf").write_bytes(lebenslauf_pdf)
     (out_dir / "anschreiben.pdf").write_bytes(anschreiben_pdf)
     (out_dir / "lebenslauf.html").write_text(
-        _lebenslauf_html(master, customized, zielposition_titel=inp.rolle, sprache=inp.sprache),
+        _lebenslauf_html(master, customized, zielposition_titel=inp.rolle,
+                         sprache=inp.sprache, template=cv_tpl),
         encoding="utf-8",
     )
     (out_dir / "anschreiben.md").write_text(anschreiben.to_markdown(), encoding="utf-8")
@@ -114,6 +122,9 @@ def tailor(inp: TailorInput) -> TailorResult:
         "gehalt": inp.gehalt,
         "anlagen": anlagen_liste,
         "missing_anlagen": missing_anlagen,
+        "template_set": inp.template.set_id,
+        "cv_set": inp.template.cv_set,
+        "anschreiben_set": inp.template.anschreiben_set,
     }
     (out_dir / "posting_meta.yaml").write_text(
         yaml.safe_dump(meta, allow_unicode=True, sort_keys=False),
