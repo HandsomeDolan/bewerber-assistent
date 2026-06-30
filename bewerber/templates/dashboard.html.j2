@@ -429,7 +429,7 @@ async function loadTemplateSets() {
     const d = await resp.json();
     TEMPLATE_SETS = d.sets || [];
     TEMPLATE_DEFAULT = d.default || "classic";
-  } catch (e) { /* offline/file:// -> Defaults */ }
+  } catch (e) { /* offline / kein HTTP -> Defaults */ }
 }
 function templateOptions(selected) {
   return TEMPLATE_SETS.map(s =>
