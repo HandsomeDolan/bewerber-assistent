@@ -324,6 +324,12 @@ tr.expanded + tr.detail { display: table-row; }
   </select></label>
 </div>
 
+<div class="default-design" style="margin:8px 0; font-size:13px;">
+  Standard-Design:
+  <select id="default-set" onchange="saveDefaultSet()"></select>
+  <span id="default-set-status" class="muted"></span>
+</div>
+
 <div id="batch-action-bar" class="batch-action-bar" style="display:none;">
   <span><b id="batch-selected-count">0</b> Jobs ausgewaehlt</span>
   <button onclick="clearSelection()" style="background:#fff; border:1px solid #ccc; padding:5px 10px; border-radius:3px; cursor:pointer;">↺ Auswahl aufheben</button>
@@ -356,6 +362,10 @@ tr.expanded + tr.detail { display: table-row; }
         <option value="de" selected>Deutsch</option>
         <option value="en">English</option>
       </select>
+    </label>
+    <label class="field" style="display:block; margin-top:10px;">
+      <span style="display:block; font-weight:600; margin-bottom:4px;">Design</span>
+      <select id="batch-tailor-set" style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:4px;"></select>
     </label>
     <div style="margin-top:16px; text-align:right;">
       <button onclick="closeBatchTailorParamsModal()" style="padding:8px 14px; background:#fff; border:1px solid #ccc; border-radius:4px; cursor:pointer;">Abbrechen</button>
@@ -410,6 +420,22 @@ tr.expanded + tr.detail { display: table-row; }
 <script id="data" type="application/json">{{ data_json }}</script>
 <script>
 const STATE = JSON.parse(document.getElementById("data").textContent);
+let TEMPLATE_SETS = [];
+let TEMPLATE_DEFAULT = "classic";
+async function loadTemplateSets() {
+  try {
+    const resp = await fetch("/api/templates");
+    if (!resp.ok) return;
+    const d = await resp.json();
+    TEMPLATE_SETS = d.sets || [];
+    TEMPLATE_DEFAULT = d.default || "classic";
+  } catch (e) { /* offline/file:// -> Defaults */ }
+}
+function templateOptions(selected) {
+  return TEMPLATE_SETS.map(s =>
+    `<option value="${s.id}" ${s.id === selected ? "selected" : ""}>${escapeHtml(s.name)}</option>`
+  ).join("");
+}
 const tbody = document.getElementById("jobs-tbody");
 const q = document.getElementById("q");
 const fStatus = document.getElementById("filter-status");
@@ -649,6 +675,16 @@ function detailHtml(r) {
              <option value="en">English</option>
            </select>
          </label>
+         <label>Design
+           <select id="set-${r.jid}" onchange="syncSetDropdowns('${r.jid}')">
+             ${templateOptions(TEMPLATE_DEFAULT)}
+           </select>
+         </label>
+         <details style="margin:4px 0;">
+           <summary style="cursor:pointer; font-size:12px;">erweitert: CV/Anschreiben getrennt</summary>
+           <label>CV-Design <select id="cvset-${r.jid}">${templateOptions(TEMPLATE_DEFAULT)}</select></label>
+           <label>Anschreiben-Design <select id="ansset-${r.jid}">${templateOptions(TEMPLATE_DEFAULT)}</select></label>
+         </details>
          <button class="action-btn primary" id="tailor-btn-${r.jid}" disabled onclick="createBewerbung('${r.jid}', event)">
            📄 Bewerbung erstellen
          </button>
@@ -687,6 +723,33 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+
+function syncSetDropdowns(jid) {
+  const main = document.getElementById("set-" + jid).value;
+  const cv = document.getElementById("cvset-" + jid);
+  const ans = document.getElementById("ansset-" + jid);
+  if (cv) cv.value = main;
+  if (ans) ans.value = main;
+}
+
+function fillDefaultSet() {
+  const sel = document.getElementById("default-set");
+  if (sel) sel.innerHTML = templateOptions(TEMPLATE_DEFAULT);
+}
+async function saveDefaultSet() {
+  const set_id = document.getElementById("default-set").value;
+  const st = document.getElementById("default-set-status");
+  try {
+    const resp = await fetch("/api/settings/default-template", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({set_id}),
+    });
+    const d = await resp.json();
+    if (!resp.ok) throw new Error(d.error || "Fehler");
+    TEMPLATE_DEFAULT = d.default;
+    if (st) st.textContent = "gespeichert";
+  } catch (e) { if (st) st.textContent = "Fehler: " + e.message; }
+}
 
 // Liefert das Datum (YYYY-MM-DD) des ersten "applied"-Eintrags aus status_history,
 // oder "" falls noch nie als "beworben" markiert.
@@ -1077,6 +1140,9 @@ async function createBewerbung(jid, evt) {
       gehalt: getFormValue(jid, "gehalt") || null,
       kontakt_name: getFormValue(jid, "kontakt") || null,
       sprache: getFormValue(jid, "sprache") || "de",
+      template_set: getFormValue(jid, "set") || "classic",
+      cv_set: getFormValue(jid, "cvset") || null,
+      anschreiben_set: getFormValue(jid, "ansset") || null,
     };
     const resp = await fetch("/api/tailor", {
       method: "POST",
@@ -1148,6 +1214,7 @@ function openBatchTailorModal() {
   document.getElementById("batch-tailor-jobcount").textContent = SELECTED.size;
   document.getElementById("batch-tailor-start").value = "";
   document.getElementById("batch-tailor-gehalt").value = "";
+  document.getElementById("batch-tailor-set").innerHTML = templateOptions(TEMPLATE_DEFAULT);
   document.getElementById("batch-tailor-params-modal").style.display = "block";
 }
 
@@ -1160,6 +1227,7 @@ async function startBatchTailor() {
   if (!start) { alert("Starttermin ist erforderlich."); return; }
   const gehalt = document.getElementById("batch-tailor-gehalt").value.trim() || null;
   const sprache = document.getElementById("batch-tailor-sprache").value || "de";
+  const template_set = document.getElementById("batch-tailor-set").value || "classic";
   const jobIds = Array.from(SELECTED);
   closeBatchTailorParamsModal();
 
@@ -1189,7 +1257,7 @@ async function startBatchTailor() {
   const resp = await fetch("/api/batch-tailor", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({job_ids: jobIds, starttermin: start, gehalt, sprache}),
+    body: JSON.stringify({job_ids: jobIds, starttermin: start, gehalt, sprache, template_set}),
   });
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({}));
@@ -1505,6 +1573,7 @@ document.querySelectorAll("th[data-sort]").forEach(th => {
   });
 });
 [q, fStatus, fScore, fBoard].forEach(el => el.addEventListener("input", applyFilters));
+loadTemplateSets().then(() => { fillDefaultSet(); applyFilters(); });
 setView(currentView);  // ruft applyFilters() intern auf
 </script>
 </body>

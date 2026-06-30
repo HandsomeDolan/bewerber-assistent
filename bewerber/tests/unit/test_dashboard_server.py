@@ -1910,3 +1910,11 @@ def test_set_default_template_roundtrip(running_server):
 def test_set_default_template_rejects_unknown(running_server):
     code, data = _post_json(running_server, "/api/settings/default-template", {"set_id": "gibtsnicht"})
     assert code == 400
+
+
+def test_dashboard_contains_template_controls(running_server):
+    code, body = _get(running_server, "/")
+    assert code == 200
+    assert "loadTemplateSets" in body
+    assert "/api/settings/default-template" in body
+    assert "templateOptions" in body
