@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Anschreiben {{ profile.person.name }} - {{ firma }}</title>
+<style>
+/* set: modern */
+/* DIN 5008 Form B (Geschäftsbrief) - Maße angenähert */
+@page {
+  size: A4;
+  margin: 1.69cm 2cm 2cm 2.41cm;   /* DIN 5008: links 2.41cm, rechts >=2cm, oben 1.69cm */
+}
+* { box-sizing: border-box; }
+body {
+  font-family: "Calibri", "Carlito", "Helvetica Neue", "Arial", sans-serif;
+  font-size: 11pt; line-height: 1.4; color: #1a1a1a;
+  margin: 0;
+}
+
+/* Absenderzeile oben rechts klein (kein eigener Block, nur in Adressfeld eingerückt) */
+.sender-mini {
+  font-size: 8pt; color: #444;
+  border-bottom: 0.5pt solid #888;
+  padding-bottom: 2pt; margin-bottom: 2pt;
+}
+
+/* Anschriftfeld (DIN: 9 Zeilen, 4.5cm hoch, beginnt 4.5cm von oben des Anschriftfelds = ca. 5cm von Blattoberkante) */
+.anschriftfeld {
+  height: 4.5cm;          /* DIN-Standard: 9 Zeilen á 5mm */
+  padding-top: 0pt;
+  margin-bottom: 0.8cm;
+}
+.anschriftfeld .row { line-height: 1.25; font-size: 11pt; }
+.anschriftfeld .row.firma { font-weight: 700; }
+.anschriftfeld .leerzeile { height: 0.5cm; }
+
+/* Datumzeile + Ort - rechtsbündig, vor dem Betreff */
+.datum-zeile {
+  text-align: right;
+  font-size: 11pt;
+  margin: 0 0 0.8cm 0;
+}
+
+/* Bezugszeile / Betreff */
+.betreff {
+  font-weight: 700;
+  font-size: 11pt;
+  color: #1f6feb;
+  margin: 0 0 1.2cm 0;
+}
+
+/* Brieftext */
+.body p {
+  margin: 0 0 0.6em 0;
+  text-align: justify;
+  hyphens: auto;
+  orphans: 3; widows: 3;
+}
+.body p.anrede { margin-bottom: 0.8em; }
+.body p.einleitung,
+.body p.hauptteil,
+.body p.schluss { margin-bottom: 0.8em; }
+
+/* Grußformel + Unterschrift */
+.gruss {
+  margin-top: 0.8cm;
+  white-space: pre-wrap;
+}
+.gruss-formel { margin-bottom: 1.6cm; }     /* Platz für Unterschrift */
+.gruss-name { font-weight: 600; }
+
+/* Anlagen am Fuß */
+.anlagen {
+  margin-top: 1.2cm;
+  font-size: 10pt; color: #444;
+}
+.anlagen-titel { font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="anschriftfeld">
+  <div class="sender-mini">
+    {{ profile.person.name }}{% if profile.person.adresse %} · {{ profile.person.adresse }}{% endif %}
+  </div>
+  <div class="row firma">{{ firma }}</div>
+  {% if kontakt_name %}<div class="row">{{ lbl.zhd }} {{ kontakt_name }}</div>{% endif %}
+  <div class="leerzeile"></div>
+  <div class="row">&nbsp;</div>
+  <div class="row">&nbsp;</div>
+</div>
+
+<div class="datum-zeile">
+  {% if ort %}{{ ort }}, {% endif %}{{ datum }}
+</div>
+
+<div class="betreff">{{ lbl.betreff_prefix }} {{ rolle }}</div>
+
+<div class="body">
+  <p class="anrede">{{ anschreiben.anrede }}</p>
+  <p class="einleitung">{{ anschreiben.einleitung }}</p>
+  <p class="hauptteil">{{ anschreiben.hauptteil }}</p>
+  <p class="schluss">{{ anschreiben.schluss }}</p>
+</div>
+
+<div class="gruss">
+  <div class="gruss-formel">{{ anschreiben.gruss.split('\n')[0] if '\n' in anschreiben.gruss else lbl.gruss_fallback }}</div>
+  <div class="gruss-name">{{ profile.person.name }}</div>
+</div>
+
+{% if anlagen %}
+<div class="anlagen">
+  <div class="anlagen-titel">{{ lbl.anlagen_titel }}</div>
+  {% for a in anlagen %}<div>{{ a }}</div>{% endfor %}
+</div>
+{% endif %}
+
+</body>
+</html>
