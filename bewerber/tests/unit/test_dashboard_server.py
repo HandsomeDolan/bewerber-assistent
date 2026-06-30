@@ -1889,3 +1889,24 @@ def test_dashboard_contains_kanban_view(running_server):
     assert 'id="kanban-view"' in body
     assert "renderKanban" in body
     assert "function setView" in body
+
+
+def test_api_templates_lists_sets_and_default(running_server):
+    code, body = _get(running_server, "/api/templates")
+    assert code == 200
+    data = json.loads(body)
+    ids = {s["id"] for s in data["sets"]}
+    assert ids == {"classic", "modern"}
+    assert data["default"] == "classic"
+
+
+def test_set_default_template_roundtrip(running_server):
+    code, data = _post_json(running_server, "/api/settings/default-template", {"set_id": "modern"})
+    assert code == 200 and data["default"] == "modern"
+    code, body = _get(running_server, "/api/templates")
+    assert json.loads(body)["default"] == "modern"
+
+
+def test_set_default_template_rejects_unknown(running_server):
+    code, data = _post_json(running_server, "/api/settings/default-template", {"set_id": "gibtsnicht"})
+    assert code == 400

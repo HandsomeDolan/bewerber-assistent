@@ -70,6 +70,8 @@ from bewerber.shared.anlagen import AnlagenConfig, copy_anlagen_to, load_anlagen
 from bewerber.shared.paths import Paths
 from bewerber.shared.state import load_state, save_state
 from bewerber.shared.state_schema import JobStatus, StatusHistoryEntry
+from bewerber.tailoring.templates_store import BuiltinTemplateStore, TemplateChoice
+from bewerber.shared.settings import load_settings, save_settings, UserSettings
 from bewerber.dashboard import auth
 from bewerber.dashboard.render import (
     render_anlagen_editor,
@@ -285,6 +287,21 @@ def _is_deliverable(rel_name: str) -> bool:
     return True
 
 
+_TEMPLATE_STORE = BuiltinTemplateStore()
+
+
+def _build_template_choice(body: dict, paths) -> "TemplateChoice":
+    """Baut TemplateChoice aus Request-Body; Default = User-Setting; validiert gegen Store."""
+    default = load_settings(paths).default_template_set
+    raw = (body.get("template_set") or default or "classic")
+    set_id = raw if _TEMPLATE_STORE.has_set(raw) else "classic"
+    cv = body.get("cv_set") or None
+    ans = body.get("anschreiben_set") or None
+    cv = cv if (cv and _TEMPLATE_STORE.has_set(cv)) else None
+    ans = ans if (ans and _TEMPLATE_STORE.has_set(ans)) else None
+    return TemplateChoice(set_id=set_id, cv_set=cv, anschreiben_set=ans)
+
+
 class _Handler(BaseHTTPRequestHandler):
 
     def _send_json(self, code: int, payload: dict) -> None:
@@ -402,6 +419,13 @@ class _Handler(BaseHTTPRequestHandler):
         if parsed_path == "/api/download-zip":
             self._handle_download_zip(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query))
             return
+        if parsed_path == "/api/templates":
+            if self._require_session() is None:
+                return
+            sets = [s.model_dump() for s in _TEMPLATE_STORE.list_sets()]
+            self._send_json(200, {"sets": sets,
+                                  "default": load_settings(self.paths).default_template_set})
+            return
         if self.path in ("/", "/index.html"):
             session = self._session_user()
             if not session:
@@ -502,6 +526,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_briefing()
             elif self.path == "/api/discover/run":
                 self._handle_discover_run()
+            elif self.path == "/api/settings/default-template":
+                self._handle_set_default_template()
             else:
                 self._send_json(404, {"error": "unknown endpoint"})
         except Exception as e:  # noqa: BLE001
@@ -677,6 +703,7 @@ class _Handler(BaseHTTPRequestHandler):
                 starttermin=starttermin,
                 gehalt=body.get("gehalt") or None,
                 sprache=body.get("sprache") or "de",
+                template=_build_template_choice(body, self.paths),
             ))
         except Exception as e:  # noqa: BLE001
             self._send_json(502, {"error": f"Tailor fehlgeschlagen: {e}"})
@@ -1297,6 +1324,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         llm = LLMClient.for_generation()
         paths = self.paths  # bind in request context before the loop
+        choice = _build_template_choice(body, paths)
         total = len(job_ids)
         emit({"event": "begin", "total": total})
 
@@ -1334,6 +1362,7 @@ class _Handler(BaseHTTPRequestHandler):
                     starttermin=starttermin,
                     gehalt=gehalt,
                     sprache=sprache,
+                    template=choice,
                 ))
                 emit({
                     "event": "done", "index": i,
@@ -1365,6 +1394,17 @@ class _Handler(BaseHTTPRequestHandler):
         state.failed_urls = [f for f in state.failed_urls if f.url != url]
         save_state(self.paths.state_json, state)
         self._send_json(200, {"ok": True, "removed": before - len(state.failed_urls)})
+
+    def _handle_set_default_template(self) -> None:
+        body = self._read_json()
+        set_id = (body.get("set_id") or "").strip()
+        if not _TEMPLATE_STORE.has_set(set_id):
+            self._send_json(400, {"error": f"unbekanntes Set {set_id!r}"})
+            return
+        s = load_settings(self.paths)
+        s.default_template_set = set_id
+        save_settings(self.paths, s)
+        self._send_json(200, {"ok": True, "default": set_id})
 
     def _handle_notes_set(self) -> None:
         body = self._read_json()
