@@ -53,13 +53,10 @@ def render_lebenslauf(
     customized: CustomizedResume,
     zielposition_titel: Optional[str] = None,
     sprache: str = "de",
+    template: str = "sets/classic/lebenslauf.html.j2",
 ) -> bytes:
-    """Render Lebenslauf as PDF bytes.
-
-    `zielposition_titel`: optional Untertitel im Header (z. B. Rolle, auf die beworben wird).
-    `sprache`: "de" (default) oder "en" - steuert die statischen Sektions-Labels.
-    """
-    html_text = _lebenslauf_html(profile, customized, zielposition_titel, sprache)
+    """Render Lebenslauf as PDF bytes."""
+    html_text = _lebenslauf_html(profile, customized, zielposition_titel, sprache, template)
     return HTML(string=html_text).write_pdf()
 
 
@@ -68,9 +65,9 @@ def _lebenslauf_html(
     customized: CustomizedResume,
     zielposition_titel: Optional[str] = None,
     sprache: str = "de",
+    template: str = "sets/classic/lebenslauf.html.j2",
 ) -> str:
-    """Render Lebenslauf HTML string (used by orchestrator to persist editable source)."""
-    return _env().get_template("lebenslauf.html.j2").render(
+    return _env().get_template(template).render(
         profile=profile,
         customized=customized,
         zielposition_titel=zielposition_titel,
@@ -105,9 +102,10 @@ def render_anschreiben(
     kontakt_name: Optional[str],
     anlagen: Optional[list[str]] = None,
     sprache: str = "de",
+    template: str = "sets/classic/anschreiben.html.j2",
 ) -> bytes:
     """Render Anschreiben as PDF bytes."""
-    html_text = _env().get_template("anschreiben.html.j2").render(
+    html_text = _env().get_template(template).render(
         profile=profile,
         anschreiben=anschreiben,
         firma=firma,
