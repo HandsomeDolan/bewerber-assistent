@@ -9,9 +9,9 @@ RESERVED = {"classic", "modern", "base"}
 
 
 def reserved_or_slug(name: str, existing_ids: set[str]) -> str | None:
-    """Name -> eindeutiger Slug. None, wenn leer oder mit reservierter id kollidierend."""
-    base = slug_part((name or "").strip())
-    if not base or base.lower() in RESERVED:
+    """Name -> eindeutiger Slug (lowercase). None, wenn leer oder mit reservierter id kollidierend."""
+    base = slug_part((name or "").strip()).lower()
+    if not base or base in RESERVED:
         return None
     if base not in existing_ids:
         return base

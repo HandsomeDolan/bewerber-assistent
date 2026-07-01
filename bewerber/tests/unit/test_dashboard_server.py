@@ -1939,3 +1939,35 @@ def test_theme_extract_worker_and_status(running_server, mocker, tmp_path):
 def test_theme_extract_status_unknown_404(running_server):
     code, body = _get(running_server, "/api/themes/extract/status?job_id=ghost")
     assert code == 404
+
+
+def test_theme_crud_and_preview(running_server):
+    import json as _j
+    from bewerber.dashboard import server as srv
+    from bewerber.shared.theme import Theme
+    # Entwurf-Job direkt setzen
+    with srv._theme_lock:
+        srv._theme_jobs["job-x"] = {"status": "done",
+            "theme": Theme(id="x", name="", accent_color="#abcdef").model_dump()}
+    # speichern
+    code, data = _post_json(running_server, "/api/themes", {"job_id": "job-x", "name": "Mein CV"})
+    assert code == 200 and data["id"] == "mein-cv"
+    # reservierter Name -> 400
+    code, _ = _post_json(running_server, "/api/themes", {"job_id": "job-x", "name": "classic"})
+    assert code == 400
+    # liste + templates
+    code, body = _get(running_server, "/api/themes")
+    assert "mein-cv" in {t["id"] for t in _j.loads(body)["themes"]}
+    code, body = _get(running_server, "/api/templates")
+    assert "mein-cv" in {s["id"] for s in _j.loads(body)["sets"]}
+    # vorschau (HTML)
+    code, body = _get(running_server, "/api/themes/preview?id=mein-cv")
+    assert code == 200 and "#abcdef" in body and "set: base" in body
+    # rename
+    code, data = _post_json(running_server, "/api/themes/mein-cv/rename", {"name": "Neuer Name"})
+    assert code == 200 and data["name"] == "Neuer Name"
+    # delete
+    code, data = _post_json(running_server, "/api/themes/mein-cv/delete", {})
+    assert code == 200 and data["deleted"] is True
+    code, body = _get(running_server, "/api/themes")
+    assert "mein-cv" not in {t["id"] for t in _j.loads(body)["themes"]}

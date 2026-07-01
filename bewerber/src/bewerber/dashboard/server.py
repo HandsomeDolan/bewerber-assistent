@@ -70,6 +70,7 @@ from bewerber.shared.anlagen import AnlagenConfig, copy_anlagen_to, load_anlagen
 from bewerber.shared.paths import Paths
 from bewerber.shared.state import load_state, save_state
 from bewerber.shared.state_schema import JobStatus, StatusHistoryEntry
+from bewerber.shared.theme_store import RESERVED
 from bewerber.tailoring.templates_store import BuiltinTemplateStore, TemplateChoice
 from bewerber.shared.settings import load_settings, save_settings
 from bewerber.dashboard import auth
@@ -432,6 +433,12 @@ class _Handler(BaseHTTPRequestHandler):
         if parsed_path == "/api/themes/extract/status":
             self._handle_theme_extract_status()
             return
+        if parsed_path == "/api/themes":
+            self._handle_themes_list()
+            return
+        if parsed_path == "/api/themes/preview":
+            self._handle_theme_preview()
+            return
         if parsed_path == "/api/discover/status":
             self._handle_discover_status()
             return
@@ -447,7 +454,9 @@ class _Handler(BaseHTTPRequestHandler):
         if parsed_path == "/api/templates":
             if self._require_session() is None:
                 return
-            sets = [s.model_dump() for s in _TEMPLATE_STORE.list_sets()]
+            from bewerber.tailoring.templates_store import UserTemplateStore
+            store = UserTemplateStore(self.paths)
+            sets = [s.model_dump() for s in store.list_sets()]
             self._send_json(200, {"sets": sets,
                                   "default": load_settings(self.paths).default_template_set})
             return
@@ -543,8 +552,14 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_logout()
             elif self.path == "/api/onboarding/extract":
                 self._handle_onboarding_extract()
+            elif self.path == "/api/themes":
+                self._handle_theme_save()
             elif self.path == "/api/themes/extract":
                 self._handle_theme_extract()
+            elif self.path.startswith("/api/themes/") and self.path.endswith("/rename"):
+                self._handle_theme_rename(self.path[len("/api/themes/"):-len("/rename")])
+            elif self.path.startswith("/api/themes/") and self.path.endswith("/delete"):
+                self._handle_theme_delete(self.path[len("/api/themes/"):-len("/delete")])
             elif self.path == "/api/onboarding/scan-folder":
                 self._handle_onboarding_scan_folder()
             elif self.path == "/api/onboarding/save":
@@ -1010,6 +1025,72 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "unbekannter job_id"})
             return
         self._send_json(200, job)
+
+    def _handle_theme_save(self) -> None:
+        if self._require_session() is None:
+            return
+        body = self._read_json()
+        job_id = body.get("job_id"); name = (body.get("name") or "").strip()
+        with _theme_lock:
+            job = _theme_jobs.get(job_id)
+        if not job or job.get("status") != "done" or "theme" not in job:
+            self._send_json(400, {"error": "kein fertiger Theme-Entwurf zu job_id"})
+            return
+        from bewerber.shared.theme import Theme
+        from bewerber.shared.theme_store import save_theme, list_themes, reserved_or_slug
+        existing = {t.id for t in list_themes(self.paths)}
+        slug = reserved_or_slug(name, existing)
+        if slug is None:
+            self._send_json(400, {"error": f"Name reserviert oder leer (nicht: {', '.join(sorted(RESERVED))})"})
+            return
+        theme = Theme.model_validate(job["theme"])
+        theme.id = slug; theme.name = name
+        save_theme(self.paths, theme)
+        self._send_json(200, {"ok": True, "id": slug})
+
+    def _handle_themes_list(self) -> None:
+        if self._require_session() is None:
+            return
+        from bewerber.shared.theme_store import list_themes
+        self._send_json(200, {"themes": [{"id": t.id, "name": t.name} for t in list_themes(self.paths)]})
+
+    def _handle_theme_delete(self, theme_id: str) -> None:
+        if self._require_session() is None:
+            return
+        from bewerber.shared.theme_store import delete_theme
+        self._send_json(200, {"ok": True, "deleted": delete_theme(self.paths, theme_id)})
+
+    def _handle_theme_rename(self, theme_id: str) -> None:
+        if self._require_session() is None:
+            return
+        body = self._read_json(); name = (body.get("name") or "").strip()
+        from bewerber.shared.theme_store import load_theme, save_theme
+        t = load_theme(self.paths, theme_id)
+        if t is None or not name:
+            self._send_json(400, {"error": "Theme fehlt oder Name leer"})
+            return
+        t.name = name; save_theme(self.paths, t)
+        self._send_json(200, {"ok": True, "id": theme_id, "name": name})
+
+    def _handle_theme_preview(self) -> None:
+        if self._require_session() is None:
+            return
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        job_id = (q.get("job_id") or [""])[0]; theme_id = (q.get("id") or [""])[0]
+        tokens = None
+        if job_id:
+            with _theme_lock:
+                job = _theme_jobs.get(job_id)
+            if job and job.get("theme"):
+                from bewerber.shared.theme import Theme
+                tokens = Theme.model_validate(job["theme"]).tokens()
+        elif theme_id:
+            from bewerber.shared.theme_store import load_theme
+            t = load_theme(self.paths, theme_id)
+            tokens = t.tokens() if t else None
+        from bewerber.dashboard.sample_data import preview_html
+        html = preview_html(tokens)
+        self._send_html(html)
 
     def _handle_briefing(self) -> None:
         """Body: {job_id}. Generiert Interview-Briefing-PDF via LLM,
