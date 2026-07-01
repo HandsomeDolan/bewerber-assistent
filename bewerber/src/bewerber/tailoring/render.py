@@ -54,9 +54,10 @@ def render_lebenslauf(
     zielposition_titel: Optional[str] = None,
     sprache: str = "de",
     template: str = "sets/classic/lebenslauf.html.j2",
+    theme: dict | None = None,
 ) -> bytes:
     """Render Lebenslauf as PDF bytes."""
-    html_text = _lebenslauf_html(profile, customized, zielposition_titel, sprache, template)
+    html_text = _lebenslauf_html(profile, customized, zielposition_titel, sprache, template, theme=theme)
     return HTML(string=html_text).write_pdf()
 
 
@@ -66,12 +67,14 @@ def _lebenslauf_html(
     zielposition_titel: Optional[str] = None,
     sprache: str = "de",
     template: str = "sets/classic/lebenslauf.html.j2",
+    theme: dict | None = None,
 ) -> str:
     return _env().get_template(template).render(
         profile=profile,
         customized=customized,
         zielposition_titel=zielposition_titel,
         lbl=_labels(sprache),
+        theme=theme,
     )
 
 
@@ -103,6 +106,7 @@ def render_anschreiben(
     anlagen: Optional[list[str]] = None,
     sprache: str = "de",
     template: str = "sets/classic/anschreiben.html.j2",
+    theme: dict | None = None,
 ) -> bytes:
     """Render Anschreiben as PDF bytes."""
     html_text = _env().get_template(template).render(
@@ -115,5 +119,6 @@ def render_anschreiben(
         ort=_extract_ort(profile.person.adresse),
         anlagen=anlagen or [],
         lbl=_labels(sprache),
+        theme=theme,
     )
     return HTML(string=html_text).write_pdf()

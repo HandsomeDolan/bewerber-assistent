@@ -22,7 +22,7 @@ from bewerber.tailoring.anschreiben import (
 )
 from bewerber.tailoring.customize import CustomizedResume, customize_resume
 from bewerber.tailoring.render import render_anschreiben, render_lebenslauf, _lebenslauf_html
-from bewerber.tailoring.templates_store import BuiltinTemplateStore, TemplateChoice
+from bewerber.tailoring.templates_store import BuiltinTemplateStore, UserTemplateStore, TemplateChoice
 
 
 @dataclass
@@ -79,23 +79,25 @@ def tailor(inp: TailorInput) -> TailorResult:
     anlagen_liste = ["Lebenslauf"] + anlagen_cfg.labels
 
     # Render PDFs and persist sources
-    store = BuiltinTemplateStore()
+    store = UserTemplateStore(paths)
     cv_tpl = store.template_path(inp.template.cv(), "lebenslauf")
     ans_tpl = store.template_path(inp.template.anschreiben(), "anschreiben")
+    cv_theme = store.theme_tokens(inp.template.cv())
+    ans_theme = store.theme_tokens(inp.template.anschreiben())
 
     datum_fmt = _format_date(inp.datum, inp.sprache)
     lebenslauf_pdf = render_lebenslauf(master, customized, zielposition_titel=inp.rolle,
-                                       sprache=inp.sprache, template=cv_tpl)
+                                       sprache=inp.sprache, template=cv_tpl, theme=cv_theme)
     anschreiben_pdf = render_anschreiben(
         master, anschreiben,
         firma=inp.firma, rolle=inp.rolle, datum=datum_fmt, kontakt_name=inp.kontakt_name,
-        anlagen=anlagen_liste, sprache=inp.sprache, template=ans_tpl,
+        anlagen=anlagen_liste, sprache=inp.sprache, template=ans_tpl, theme=ans_theme,
     )
     (out_dir / "lebenslauf.pdf").write_bytes(lebenslauf_pdf)
     (out_dir / "anschreiben.pdf").write_bytes(anschreiben_pdf)
     (out_dir / "lebenslauf.html").write_text(
         _lebenslauf_html(master, customized, zielposition_titel=inp.rolle,
-                         sprache=inp.sprache, template=cv_tpl),
+                         sprache=inp.sprache, template=cv_tpl, theme=cv_theme),
         encoding="utf-8",
     )
     (out_dir / "anschreiben.md").write_text(anschreiben.to_markdown(), encoding="utf-8")
