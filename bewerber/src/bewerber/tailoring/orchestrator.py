@@ -22,7 +22,7 @@ from bewerber.tailoring.anschreiben import (
 )
 from bewerber.tailoring.customize import CustomizedResume, customize_resume
 from bewerber.tailoring.render import render_anschreiben, render_lebenslauf, _lebenslauf_html
-from bewerber.tailoring.templates_store import BuiltinTemplateStore, UserTemplateStore, TemplateChoice
+from bewerber.tailoring.templates_store import UserTemplateStore, TemplateChoice
 
 
 @dataclass

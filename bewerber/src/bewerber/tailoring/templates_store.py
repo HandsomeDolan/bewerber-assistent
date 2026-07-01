@@ -72,10 +72,14 @@ class UserTemplateStore(TemplateStore):
     """Builtins + per-User-Themes. Themes rendern ueber das Basis-Layout (sets/base)."""
     def __init__(self, paths):
         self._paths = paths
+        self._cache = None
 
     def _themes(self):
-        from bewerber.shared.theme_store import list_themes
-        return {t.id: t for t in list_themes(self._paths)}
+        # Store-Instanz ist kurzlebig (ein tailor()-Lauf) -> einmal von Platte lesen.
+        if self._cache is None:
+            from bewerber.shared.theme_store import list_themes
+            self._cache = {t.id: t for t in list_themes(self._paths)}
+        return self._cache
 
     def list_sets(self) -> list[TemplateSetMeta]:
         sets = list(_BUILTIN)
