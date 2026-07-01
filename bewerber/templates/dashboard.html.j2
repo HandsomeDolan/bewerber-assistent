@@ -780,13 +780,17 @@ async function uploadTheme() {
 }
 async function pollThemeExtract() {
   const st = document.getElementById("theme-upload-status");
-  const resp = await fetch("/api/themes/extract/status?job_id=" + encodeURIComponent(THEME_JOB));
-  const d = await resp.json();
-  if (d.status === "running") { setTimeout(pollThemeExtract, 1500); return; }
-  if (d.status === "failed") { st.textContent = "Analyse fehlgeschlagen"; return; }
-  st.textContent = "fertig – Vorschau:";
-  document.getElementById("theme-preview").src = "/api/themes/preview?job_id=" + encodeURIComponent(THEME_JOB);
-  document.getElementById("theme-preview-wrap").style.display = "block";
+  try {
+    const resp = await fetch("/api/themes/extract/status?job_id=" + encodeURIComponent(THEME_JOB));
+    const d = await resp.json();
+    if (d.status === "running") { setTimeout(pollThemeExtract, 1500); return; }
+    if (d.status === "failed") { st.textContent = "Analyse fehlgeschlagen"; return; }
+    st.textContent = "fertig – Vorschau:";
+    document.getElementById("theme-preview").src = "/api/themes/preview?job_id=" + encodeURIComponent(THEME_JOB);
+    document.getElementById("theme-preview-wrap").style.display = "block";
+  } catch (e) {
+    st.textContent = "Netzwerkfehler – bitte erneut versuchen";
+  }
 }
 async function saveTheme() {
   const name = document.getElementById("theme-name").value.trim();
