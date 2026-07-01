@@ -51,6 +51,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -71,7 +72,7 @@ from bewerber.shared.paths import Paths
 from bewerber.shared.state import load_state, save_state
 from bewerber.shared.state_schema import JobStatus, StatusHistoryEntry
 from bewerber.shared.theme_store import RESERVED
-from bewerber.tailoring.templates_store import BuiltinTemplateStore, UserTemplateStore, TemplateChoice
+from bewerber.tailoring.templates_store import UserTemplateStore, TemplateChoice
 from bewerber.shared.settings import load_settings, save_settings
 from bewerber.dashboard import auth
 from bewerber.dashboard.render import (
@@ -310,7 +311,12 @@ def _is_deliverable(rel_name: str) -> bool:
     return True
 
 
-_TEMPLATE_STORE = BuiltinTemplateStore()
+_VALID_THEME_ID_RE = re.compile(r"[a-z0-9-]+")
+
+
+def _valid_theme_id(tid: str) -> bool:
+    """Theme-id muss ein lowercase-Slug sein (nur [a-z0-9-])."""
+    return bool(_VALID_THEME_ID_RE.fullmatch(tid or ""))
 
 
 def _build_template_choice(body: dict, paths) -> "TemplateChoice":
@@ -455,7 +461,6 @@ class _Handler(BaseHTTPRequestHandler):
         if parsed_path == "/api/templates":
             if self._require_session() is None:
                 return
-            from bewerber.tailoring.templates_store import UserTemplateStore
             store = UserTemplateStore(self.paths)
             sets = [s.model_dump() for s in store.list_sets()]
             self._send_json(200, {"sets": sets,
@@ -1056,12 +1061,18 @@ class _Handler(BaseHTTPRequestHandler):
         self._send_json(200, {"themes": [{"id": t.id, "name": t.name} for t in list_themes(self.paths)]})
 
     def _handle_theme_delete(self, theme_id: str) -> None:
+        if not _valid_theme_id(theme_id):
+            self._send_json(400, {"error": "ungueltige id"})
+            return
         if self._require_session() is None:
             return
         from bewerber.shared.theme_store import delete_theme
         self._send_json(200, {"ok": True, "deleted": delete_theme(self.paths, theme_id)})
 
     def _handle_theme_rename(self, theme_id: str) -> None:
+        if not _valid_theme_id(theme_id):
+            self._send_json(400, {"error": "ungueltige id"})
+            return
         if self._require_session() is None:
             return
         body = self._read_json(); name = (body.get("name") or "").strip()
@@ -1086,6 +1097,9 @@ class _Handler(BaseHTTPRequestHandler):
                 from bewerber.shared.theme import Theme
                 tokens = Theme.model_validate(job["theme"]).tokens()
         elif theme_id:
+            if not _valid_theme_id(theme_id):
+                self._send_json(400, {"error": "ungueltige id"})
+                return
             from bewerber.shared.theme_store import load_theme
             t = load_theme(self.paths, theme_id)
             tokens = t.tokens() if t else None

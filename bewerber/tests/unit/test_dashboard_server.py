@@ -2003,3 +2003,56 @@ def test_dashboard_has_theme_upload(running_server):
     code, body = _get(running_server, "/")
     assert code == 200
     assert "uploadTheme" in body and "/api/themes/extract" in body and "loadMyThemes" in body
+
+
+# ---------------------------------------------------------------------------
+# Security: Path-Traversal-Blockade in Theme-id-Endpunkten
+# ---------------------------------------------------------------------------
+
+def test_theme_id_path_traversal_blocked(running_server, tmp_path):
+    """Stellt sicher, dass Path-Traversal-Versuche in Theme-ids abgeblockt werden.
+
+    Store-Layer (deterministisch): delete_theme / load_theme mit traversal-id
+    geben False/None zurueck ohne die Datei anzutasten.
+
+    HTTP-Layer: percent-kodierte traversal-id liefert 400; sentinel-Datei bleibt erhalten.
+    Note: urllib normalisiert '../' in URL-Pfaden vor dem Senden weg — daher testen wir
+    den HTTP-Layer mit einem percent-enkodiertem Segment (%2F), das der Server als
+    rohe id sieht. Der Store-Layer-Test ist der authoritative Regressionstest.
+    """
+    from bewerber.shared.theme_store import delete_theme, load_theme
+    from bewerber.shared.paths import Paths
+
+    up = Paths(user=TEST_USER)
+
+    # --- Store-Layer-Guard (deterministisch) ---
+    # Sentinel: schreibe eine echte YAML-Datei ausserhalb themes_dir
+    sentinel = up.data_dir / "sentinel_traversal.yaml"
+    sentinel.write_text("safe: true\n", encoding="utf-8")
+
+    assert delete_theme(up, "../../sentinel_traversal") is False, \
+        "delete_theme muss traversal-id ablehnen (False)"
+    assert sentinel.exists(), "Sentinel-Datei wurde durch delete_theme unveraendert"
+
+    assert load_theme(up, "../../sentinel_traversal") is None, \
+        "load_theme muss traversal-id ablehnen (None)"
+    assert sentinel.exists(), "Sentinel-Datei wurde durch load_theme unveraendert"
+
+    # Auch mit Slash-Varianten
+    assert delete_theme(up, "../settings") is False
+    assert load_theme(up, "../settings") is None
+
+    # --- HTTP-Layer-Guard (percent-enkodierte id) ---
+    # %2E%2E%2Fsettings = "../settings" — der Server sieht das als theme_id
+    # _valid_theme_id blockiert wegen des Schraegstichs
+    code, data = _post_json(running_server, "/api/themes/%2E%2E%2Fsettings/delete", {})
+    assert code == 400, f"Erwartet 400 fuer traversal delete, bekam {code}: {data}"
+
+    code, data = _post_json(running_server, "/api/themes/%2E%2E%2Fsettings/rename", {"name": "x"})
+    assert code == 400, f"Erwartet 400 fuer traversal rename, bekam {code}: {data}"
+
+    code, _ = _get(running_server, "/api/themes/preview?id=%2E%2E%2Fsettings")
+    assert code == 400, f"Erwartet 400 fuer traversal preview, bekam {code}"
+
+    # Sentinel unveraendert nach allen HTTP-Versuchen
+    assert sentinel.exists(), "Sentinel nach HTTP-Versuchen verschwunden"

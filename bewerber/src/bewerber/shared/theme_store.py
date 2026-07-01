@@ -1,11 +1,14 @@
 """Persistenz fuer User-Themes (YAML pro Theme unter data_dir/themes/)."""
 import os
+import re
 import yaml
 from bewerber.shared.paths import Paths
 from bewerber.shared.theme import Theme
 from bewerber.shared.slug import slug_part
 
 RESERVED = {"classic", "modern", "base"}
+
+_ID_RE = re.compile(r"[a-z0-9-]+")
 
 
 def reserved_or_slug(name: str, existing_ids: set[str]) -> str | None:
@@ -22,6 +25,8 @@ def reserved_or_slug(name: str, existing_ids: set[str]) -> str | None:
 
 
 def save_theme(paths: Paths, theme: Theme) -> None:
+    if not _ID_RE.fullmatch(theme.id or ""):
+        raise ValueError(f"Ungueltige Theme-id: {theme.id!r}")
     d = paths.themes_dir
     d.mkdir(parents=True, exist_ok=True)
     p = d / f"{theme.id}.yaml"
@@ -31,6 +36,8 @@ def save_theme(paths: Paths, theme: Theme) -> None:
 
 
 def load_theme(paths: Paths, theme_id: str) -> Theme | None:
+    if not _ID_RE.fullmatch(theme_id or ""):
+        return None
     p = paths.themes_dir / f"{theme_id}.yaml"
     if not p.is_file():
         return None
@@ -51,6 +58,8 @@ def list_themes(paths: Paths) -> list[Theme]:
 
 
 def delete_theme(paths: Paths, theme_id: str) -> bool:
+    if not _ID_RE.fullmatch(theme_id or ""):
+        return False
     p = paths.themes_dir / f"{theme_id}.yaml"
     if p.is_file():
         p.unlink()
