@@ -802,12 +802,40 @@ async function loadMyThemes() {
   const el = document.getElementById("my-themes"); if (!el) return;
   const resp = await fetch("/api/themes"); if (!resp.ok) return;
   const d = await resp.json();
-  el.innerHTML = "<b>Meine Layouts:</b> " + (d.themes.length ? "" : "<span class='muted'>keine</span>");
+  el.innerHTML = "";
+  const label = document.createElement("b");
+  label.textContent = "Meine Layouts:";
+  el.appendChild(label);
+  if (!d.themes.length) {
+    const none = document.createElement("span");
+    none.className = "muted";
+    none.textContent = " keine";
+    el.appendChild(none);
+  }
   for (const t of d.themes) {
     const row = document.createElement("span");
-    row.innerHTML = ` [${escapeHtml(t.name)} <a href="/api/themes/preview?id=${encodeURIComponent(t.id)}" target="_blank">Vorschau</a>` +
-      ` · <a href="#" onclick="renameTheme('${t.id}');return false">umbenennen</a>` +
-      ` · <a href="#" onclick="deleteTheme('${t.id}');return false">loeschen</a>]`;
+    row.appendChild(document.createTextNode(" ["));
+    const nameNode = document.createTextNode(t.name);
+    row.appendChild(nameNode);
+    row.appendChild(document.createTextNode(" "));
+    const preview = document.createElement("a");
+    preview.href = "/api/themes/preview?id=" + encodeURIComponent(t.id);
+    preview.target = "_blank";
+    preview.textContent = "Vorschau";
+    row.appendChild(preview);
+    row.appendChild(document.createTextNode(" · "));
+    const rename = document.createElement("a");
+    rename.href = "#";
+    rename.textContent = "umbenennen";
+    rename.addEventListener("click", function(e) { e.preventDefault(); renameTheme(t.id); });
+    row.appendChild(rename);
+    row.appendChild(document.createTextNode(" · "));
+    const del = document.createElement("a");
+    del.href = "#";
+    del.textContent = "loeschen";
+    del.addEventListener("click", function(e) { e.preventDefault(); deleteTheme(t.id); });
+    row.appendChild(del);
+    row.appendChild(document.createTextNode("]"));
     el.appendChild(row);
   }
 }
