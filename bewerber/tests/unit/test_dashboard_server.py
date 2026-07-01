@@ -1918,3 +1918,24 @@ def test_dashboard_contains_template_controls(running_server):
     assert "loadTemplateSets" in body
     assert "/api/settings/default-template" in body
     assert "templateOptions" in body
+
+
+def test_theme_extract_worker_and_status(running_server, mocker, tmp_path):
+    from bewerber.dashboard import server as srv
+    from bewerber.shared.theme import Theme
+    mocker.patch("bewerber.tailoring.theme_extractor.extract_theme",
+                 return_value=Theme(id="x", name="", accent_color="#abcdef"))
+    f = tmp_path / "cv.pdf"; f.write_bytes(b"%PDF-1.4 dummy")
+    job_id = "themejob-1"
+    with srv._theme_lock:
+        srv._theme_jobs[job_id] = {"status": "running"}
+    srv._run_theme_extraction(job_id, f, __import__("bewerber.shared.paths", fromlist=["Paths"]).Paths())
+    with srv._theme_lock:
+        st = srv._theme_jobs[job_id]
+    assert st["status"] == "done" and st["theme"]["accent_color"] == "#abcdef"
+    assert not f.exists()  # temp-Datei aufgeraeumt
+
+
+def test_theme_extract_status_unknown_404(running_server):
+    code, body = _get(running_server, "/api/themes/extract/status?job_id=ghost")
+    assert code == 404

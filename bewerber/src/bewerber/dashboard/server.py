@@ -108,6 +108,9 @@ def _registry_path() -> Path:
 _onboarding_jobs: dict[str, dict] = {}
 _onboarding_lock = threading.Lock()
 
+_theme_jobs: dict[str, dict] = {}
+_theme_lock = threading.Lock()
+
 # Background-State fuer den manuellen Discover-Run vom Dashboard aus.
 # Nur EIN Discover-Job zur Zeit (current_id). Wenn None: kein Lauf aktiv.
 _discover_state: dict = {"current_id": None, "jobs": {}}
@@ -250,6 +253,25 @@ def _run_onboarding_extraction(job_id: str, upload_dir: Path, paths: Paths) -> N
                 "status": "failed",
                 "error": str(e)[:500],
             })
+
+
+def _run_theme_extraction(job_id: str, file_path: Path, paths: Paths) -> None:
+    """Background: leitet ein Theme aus dem Upload ab, haelt es als Entwurf."""
+    try:
+        from bewerber.tailoring.theme_extractor import extract_theme
+        from bewerber.shared.llm import LLMClient
+        theme = extract_theme(file_path, name="", llm=LLMClient.for_generation())
+        with _theme_lock:
+            _theme_jobs[job_id].update({"status": "done", "theme": theme.model_dump()})
+    except Exception as e:  # noqa: BLE001
+        log.exception("[theme] extraction %s failed", job_id)
+        with _theme_lock:
+            _theme_jobs[job_id].update({"status": "failed", "error": str(e)[:500]})
+    finally:
+        try:
+            file_path.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _now_iso() -> str:
@@ -407,6 +429,9 @@ class _Handler(BaseHTTPRequestHandler):
         if parsed_path == "/api/onboarding/status":
             self._handle_onboarding_status()
             return
+        if parsed_path == "/api/themes/extract/status":
+            self._handle_theme_extract_status()
+            return
         if parsed_path == "/api/discover/status":
             self._handle_discover_status()
             return
@@ -518,6 +543,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_logout()
             elif self.path == "/api/onboarding/extract":
                 self._handle_onboarding_extract()
+            elif self.path == "/api/themes/extract":
+                self._handle_theme_extract()
             elif self.path == "/api/onboarding/scan-folder":
                 self._handle_onboarding_scan_folder()
             elif self.path == "/api/onboarding/save":
@@ -945,6 +972,44 @@ class _Handler(BaseHTTPRequestHandler):
         ).start()
 
         self._send_json(200, {"ok": True, "job_id": job_id, "files": saved})
+
+    def _handle_theme_extract(self) -> None:
+        if self._require_session() is None:
+            return
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0:
+            self._send_json(400, {"error": "Body fehlt"})
+            return
+        body = self.rfile.read(length)
+        fields = _parse_multipart(self.headers, body)
+        files = [(c, fn) for c, fn in fields.get("file", []) if fn and c]
+        if not files:
+            self._send_json(400, {"error": "Datei erforderlich (Form-Feld 'file')"})
+            return
+        content, fname = files[0]
+        ext = Path(fname or "").suffix.lower()
+        if ext not in (".pdf", ".docx"):
+            self._send_json(400, {"error": "Nur PDF oder DOCX"})
+            return
+        import tempfile
+        fd = Path(tempfile.mkdtemp(prefix="bewerber-theme-")) / ("upload" + ext)
+        fd.write_bytes(content)
+        job_id = str(uuid.uuid4())
+        with _theme_lock:
+            _theme_jobs[job_id] = {"status": "running", "started_at": _now_iso()}
+        threading.Thread(target=_run_theme_extraction, args=(job_id, fd, self.paths), daemon=True).start()
+        self._send_json(200, {"ok": True, "job_id": job_id})
+
+    def _handle_theme_extract_status(self) -> None:
+        if self._require_session() is None:
+            return
+        job_id = (urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("job_id") or [""])[0]
+        with _theme_lock:
+            job = _theme_jobs.get(job_id)
+        if not job:
+            self._send_json(404, {"error": "unbekannter job_id"})
+            return
+        self._send_json(200, job)
 
     def _handle_briefing(self) -> None:
         """Body: {job_id}. Generiert Interview-Briefing-PDF via LLM,
