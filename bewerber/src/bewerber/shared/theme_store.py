@@ -3,6 +3,22 @@ import os
 import yaml
 from bewerber.shared.paths import Paths
 from bewerber.shared.theme import Theme
+from bewerber.shared.slug import slug_part
+
+RESERVED = {"classic", "modern", "base"}
+
+
+def reserved_or_slug(name: str, existing_ids: set[str]) -> str | None:
+    """Name -> eindeutiger Slug. None, wenn leer oder mit reservierter id kollidierend."""
+    base = slug_part((name or "").strip())
+    if not base or base.lower() in RESERVED:
+        return None
+    if base not in existing_ids:
+        return base
+    i = 2
+    while f"{base}-{i}" in existing_ids:
+        i += 1
+    return f"{base}-{i}"
 
 
 def save_theme(paths: Paths, theme: Theme) -> None:
