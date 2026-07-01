@@ -71,7 +71,7 @@ from bewerber.shared.paths import Paths
 from bewerber.shared.state import load_state, save_state
 from bewerber.shared.state_schema import JobStatus, StatusHistoryEntry
 from bewerber.shared.theme_store import RESERVED
-from bewerber.tailoring.templates_store import BuiltinTemplateStore, TemplateChoice
+from bewerber.tailoring.templates_store import BuiltinTemplateStore, UserTemplateStore, TemplateChoice
 from bewerber.shared.settings import load_settings, save_settings
 from bewerber.dashboard import auth
 from bewerber.dashboard.render import (
@@ -315,13 +315,14 @@ _TEMPLATE_STORE = BuiltinTemplateStore()
 
 def _build_template_choice(body: dict, paths) -> "TemplateChoice":
     """Baut TemplateChoice aus Request-Body; Default = User-Setting; validiert gegen Store."""
+    store = UserTemplateStore(paths)
     default = load_settings(paths).default_template_set
     raw = (body.get("template_set") or default or "classic")
-    set_id = raw if _TEMPLATE_STORE.has_set(raw) else "classic"
+    set_id = raw if store.has_set(raw) else "classic"
     cv = body.get("cv_set") or None
     ans = body.get("anschreiben_set") or None
-    cv = cv if (cv and _TEMPLATE_STORE.has_set(cv)) else None
-    ans = ans if (ans and _TEMPLATE_STORE.has_set(ans)) else None
+    cv = cv if (cv and store.has_set(cv)) else None
+    ans = ans if (ans and store.has_set(ans)) else None
     return TemplateChoice(set_id=set_id, cv_set=cv, anschreiben_set=ans)
 
 
@@ -1544,7 +1545,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _handle_set_default_template(self) -> None:
         body = self._read_json()
         set_id = (body.get("set_id") or "").strip()
-        if not _TEMPLATE_STORE.has_set(set_id):
+        if not UserTemplateStore(self.paths).has_set(set_id):
             self._send_json(400, {"error": f"unbekanntes Set {set_id!r}"})
             return
         s = load_settings(self.paths)

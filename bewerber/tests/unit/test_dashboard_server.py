@@ -1971,3 +1971,25 @@ def test_theme_crud_and_preview(running_server):
     assert code == 200 and data["deleted"] is True
     code, body = _get(running_server, "/api/themes")
     assert "mein-cv" not in {t["id"] for t in _j.loads(body)["themes"]}
+
+
+def test_default_template_accepts_saved_theme(running_server):
+    """Finding-2 Regression: a saved user theme can be set as default (user-aware store)."""
+    from bewerber.dashboard import server as srv
+    from bewerber.shared.theme import Theme
+
+    # Seed a theme draft in the extraction job map, then save it via the API
+    with srv._theme_lock:
+        srv._theme_jobs["job-theme-default"] = {
+            "status": "done",
+            "theme": Theme(id="x", name="", accent_color="#123456").model_dump(),
+        }
+    code, data = _post_json(running_server, "/api/themes", {"job_id": "job-theme-default", "name": "My Theme"})
+    assert code == 200, data
+    theme_id = data["id"]  # "my-theme"
+    assert theme_id == "my-theme"
+
+    # The saved theme id must be accepted as a valid default (was 400 before the fix)
+    code, data = _post_json(running_server, "/api/settings/default-template", {"set_id": theme_id})
+    assert code == 200, f"Expected 200 but got {code}: {data}"
+    assert data["default"] == theme_id

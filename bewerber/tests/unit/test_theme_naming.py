@@ -9,7 +9,7 @@ def test_reserved_names_rejected():
 
 
 def test_normal_name_slugged():
-    assert reserved_or_slug("Mein CV 2026", set()) == "Mein-CV-2026"
+    assert reserved_or_slug("Mein CV 2026", set()) == "mein-cv-2026"
 
 
 def test_duplicate_gets_suffix():
