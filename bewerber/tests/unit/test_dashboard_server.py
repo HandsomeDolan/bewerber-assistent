@@ -1993,3 +1993,13 @@ def test_default_template_accepts_saved_theme(running_server):
     code, data = _post_json(running_server, "/api/settings/default-template", {"set_id": theme_id})
     assert code == 200, f"Expected 200 but got {code}: {data}"
     assert data["default"] == theme_id
+
+
+# ---------------------------------------------------------------------------
+# Task 5: Theme-Upload-UI smoke test
+# ---------------------------------------------------------------------------
+
+def test_dashboard_has_theme_upload(running_server):
+    code, body = _get(running_server, "/")
+    assert code == 200
+    assert "uploadTheme" in body and "/api/themes/extract" in body and "loadMyThemes" in body

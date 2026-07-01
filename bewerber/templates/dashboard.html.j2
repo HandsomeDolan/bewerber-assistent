@@ -330,6 +330,21 @@ tr.expanded + tr.detail { display: table-row; }
   <span id="default-set-status" class="muted"></span>
 </div>
 
+<div class="theme-upload" style="margin:8px 0; font-size:13px;">
+  <b>Eigenes Layout</b>
+  <input type="file" id="theme-file" accept=".pdf,.docx">
+  <button onclick="uploadTheme()">Analysieren</button>
+  <span id="theme-upload-status" class="muted"></span>
+  <div id="theme-preview-wrap" style="display:none; margin-top:8px;">
+    <iframe id="theme-preview" style="width:100%; height:520px; border:1px solid #ccc;"></iframe>
+    <div style="margin-top:6px;">
+      Name: <input type="text" id="theme-name" placeholder="z. B. Mein CV 2026">
+      <button onclick="saveTheme()">Speichern</button>
+    </div>
+  </div>
+  <div id="my-themes" style="margin-top:8px;"></div>
+</div>
+
 <div id="batch-action-bar" class="batch-action-bar" style="display:none;">
   <span><b id="batch-selected-count">0</b> Jobs ausgewaehlt</span>
   <button onclick="clearSelection()" style="background:#fff; border:1px solid #ccc; padding:5px 10px; border-radius:3px; cursor:pointer;">↺ Auswahl aufheben</button>
@@ -749,6 +764,63 @@ async function saveDefaultSet() {
     TEMPLATE_DEFAULT = d.default;
     if (st) st.textContent = "gespeichert";
   } catch (e) { if (st) st.textContent = "Fehler: " + e.message; }
+}
+
+let THEME_JOB = null;
+async function uploadTheme() {
+  const f = document.getElementById("theme-file").files[0];
+  const st = document.getElementById("theme-upload-status");
+  if (!f) { st.textContent = "Bitte Datei waehlen"; return; }
+  st.textContent = "laedt hoch …";
+  const fd = new FormData(); fd.append("file", f);
+  const resp = await fetch("/api/themes/extract", {method: "POST", body: fd});
+  const d = await resp.json();
+  if (!resp.ok) { st.textContent = "Fehler: " + (d.error || ""); return; }
+  THEME_JOB = d.job_id; st.textContent = "analysiere …"; pollThemeExtract();
+}
+async function pollThemeExtract() {
+  const st = document.getElementById("theme-upload-status");
+  const resp = await fetch("/api/themes/extract/status?job_id=" + encodeURIComponent(THEME_JOB));
+  const d = await resp.json();
+  if (d.status === "running") { setTimeout(pollThemeExtract, 1500); return; }
+  if (d.status === "failed") { st.textContent = "Analyse fehlgeschlagen"; return; }
+  st.textContent = "fertig – Vorschau:";
+  document.getElementById("theme-preview").src = "/api/themes/preview?job_id=" + encodeURIComponent(THEME_JOB);
+  document.getElementById("theme-preview-wrap").style.display = "block";
+}
+async function saveTheme() {
+  const name = document.getElementById("theme-name").value.trim();
+  const st = document.getElementById("theme-upload-status");
+  const resp = await fetch("/api/themes", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({job_id: THEME_JOB, name})});
+  const d = await resp.json();
+  if (!resp.ok) { st.textContent = "Fehler: " + (d.error || ""); return; }
+  st.textContent = "gespeichert"; document.getElementById("theme-preview-wrap").style.display = "none";
+  await loadTemplateSets(); loadMyThemes();
+}
+async function loadMyThemes() {
+  const el = document.getElementById("my-themes"); if (!el) return;
+  const resp = await fetch("/api/themes"); if (!resp.ok) return;
+  const d = await resp.json();
+  el.innerHTML = "<b>Meine Layouts:</b> " + (d.themes.length ? "" : "<span class='muted'>keine</span>");
+  for (const t of d.themes) {
+    const row = document.createElement("span");
+    row.innerHTML = ` [${escapeHtml(t.name)} <a href="/api/themes/preview?id=${encodeURIComponent(t.id)}" target="_blank">Vorschau</a>` +
+      ` · <a href="#" onclick="renameTheme('${t.id}');return false">umbenennen</a>` +
+      ` · <a href="#" onclick="deleteTheme('${t.id}');return false">loeschen</a>]`;
+    el.appendChild(row);
+  }
+}
+async function deleteTheme(id) {
+  if (!confirm("Layout loeschen?")) return;
+  await fetch("/api/themes/" + encodeURIComponent(id) + "/delete", {method: "POST"});
+  await loadTemplateSets(); loadMyThemes();
+}
+async function renameTheme(id) {
+  const name = prompt("Neuer Name?"); if (!name) return;
+  await fetch("/api/themes/" + encodeURIComponent(id) + "/rename", {method: "POST",
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify({name})});
+  await loadTemplateSets(); loadMyThemes();
 }
 
 // Liefert das Datum (YYYY-MM-DD) des ersten "applied"-Eintrags aus status_history,
@@ -1576,6 +1648,7 @@ document.querySelectorAll("th[data-sort]").forEach(th => {
 // Erst Sets laden, dann rendern: vermeidet leere Design-Dropdowns beim ersten Paint
 // und den doppelten applyFilters-Lauf. loadTemplateSets faengt Fehler intern ab.
 loadTemplateSets().then(() => { fillDefaultSet(); setView(currentView); });
+loadMyThemes();
 </script>
 </body>
 </html>
