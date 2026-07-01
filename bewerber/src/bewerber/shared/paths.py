@@ -87,6 +87,10 @@ class Paths:
         return self.data_dir / "settings.yaml"
 
     @property
+    def themes_dir(self) -> Path:
+        return self.data_dir / "themes"
+
+    @property
     def bewerbungsunterlagen(self) -> Path:
         return self.documents / "Bewerbungsunterlagen"
 

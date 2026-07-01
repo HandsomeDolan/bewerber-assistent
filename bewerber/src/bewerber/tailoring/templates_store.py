@@ -66,3 +66,35 @@ class BuiltinTemplateStore(TemplateStore):
             raise ValueError(f"unbekanntes Dokument {doc!r}")
         sid = set_id if self.has_set(set_id) else DEFAULT_SET
         return f"sets/{sid}/{doc}.html.j2"
+
+
+class UserTemplateStore(TemplateStore):
+    """Builtins + per-User-Themes. Themes rendern ueber das Basis-Layout (sets/base)."""
+    def __init__(self, paths):
+        self._paths = paths
+
+    def _themes(self):
+        from bewerber.shared.theme_store import list_themes
+        return {t.id: t for t in list_themes(self._paths)}
+
+    def list_sets(self) -> list[TemplateSetMeta]:
+        sets = list(_BUILTIN)
+        for t in self._themes().values():
+            sets.append(TemplateSetMeta(id=t.id, name=t.name, description="Eigenes Layout", builtin=False))
+        return sets
+
+    def has_set(self, set_id: str) -> bool:
+        return any(s.id == set_id for s in _BUILTIN) or set_id in self._themes()
+
+    def template_path(self, set_id: str, doc: str) -> str:
+        if doc not in _DOCS:
+            raise ValueError(f"unbekanntes Dokument {doc!r}")
+        if any(s.id == set_id for s in _BUILTIN):
+            return f"sets/{set_id}/{doc}.html.j2"
+        if set_id in self._themes():
+            return f"sets/base/{doc}.html.j2"
+        return f"sets/{DEFAULT_SET}/{doc}.html.j2"
+
+    def theme_tokens(self, set_id: str) -> dict | None:
+        t = self._themes().get(set_id)
+        return t.tokens() if t else None
