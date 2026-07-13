@@ -325,6 +325,7 @@ function kwOpen(card) {
   document.getElementById("kw-suggestions").innerHTML = "";
   document.getElementById("kw-status").textContent = "";
   document.getElementById("kw-generate").style.display = "";
+  document.getElementById("kw-generate").disabled = false;
   document.getElementById("kw-apply").style.display = "none";
   const linkedinOn = Array.from(card.querySelectorAll(".board:checked")).some(cb => cb.value === "linkedin");
   document.getElementById("kw-linkedin-hint").style.display = linkedinOn ? "" : "none";
@@ -390,7 +391,7 @@ document.getElementById("kw-generate").addEventListener("click", async () => {
     document.getElementById("kw-generate").style.display = "none";
     document.getElementById("kw-apply").style.display = "";
   } catch (e) {
-    status.textContent = "Netzfehler: " + e.message;
+    if (myReq === kwReqSeq) status.textContent = "Netzfehler: " + e.message;
   } finally {
     if (myReq === kwReqSeq) document.getElementById("kw-generate").disabled = false;
   }
@@ -433,13 +434,16 @@ document.getElementById("kw-apply").addEventListener("click", () => {
     additions.push(...linesToList(document.getElementById("kw-manual").value));
   }
 
+  let added = 0;
   additions.forEach(kw => {
     const key = kw.toLowerCase();
-    if (kw && !seen.has(key)) { seen.add(key); existing.push(kw); }
+    if (kw && !seen.has(key)) { seen.add(key); existing.push(kw); added++; }
   });
 
-  ta.value = listToLines(existing);
-  setDirty(true);
+  if (added > 0) {
+    ta.value = listToLines(existing);
+    setDirty(true);
+  }
   kwClose();
 });
 </script>
