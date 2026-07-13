@@ -576,10 +576,45 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_discover_run()
             elif self.path == "/api/settings/default-template":
                 self._handle_set_default_template()
+            elif self.path == "/api/keywords/generate":
+                self._handle_generate_keywords()
             else:
                 self._send_json(404, {"error": "unknown endpoint"})
         except Exception as e:  # noqa: BLE001
             self._send_json(500, {"error": str(e)})
+
+    def _handle_generate_keywords(self) -> None:
+        """POST /api/keywords/generate: body {seeds:[str], description:str}
+        -> {variants:[{keyword,kategorie}]}. Synchroner LLM-Call."""
+        body = self._read_json()
+        seeds = body.get("seeds") or []
+        description = body.get("description", "") or ""
+        if not isinstance(seeds, list):
+            self._send_json(400, {"error": "seeds muss eine Liste sein"})
+            return
+
+        from bewerber.shared.llm import (
+            LLMClient,
+            LLMQuotaExhausted,
+            LLMTransientError,
+            LLMAllProvidersFailed,
+        )
+        from bewerber.discovery.keyword_variants import generate_keyword_variants
+
+        try:
+            result = generate_keyword_variants(
+                [str(s) for s in seeds], str(description), LLMClient.for_generation()
+            )
+        except ValueError:
+            self._send_json(400, {
+                "error": "Bitte gib zuerst Jobtitel/Suchbegriffe ein oder beschreibe, was du suchst."
+            })
+            return
+        except (LLMQuotaExhausted, LLMTransientError, LLMAllProvidersFailed) as le:
+            self._send_json(502, {"error": f"KI-Dienst nicht verfügbar: {le}"})
+            return
+
+        self._send_json(200, {"variants": [v.model_dump() for v in result.variants]})
 
     def _handle_save_searches(self) -> None:
         body = self._read_json()

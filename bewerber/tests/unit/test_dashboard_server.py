@@ -2056,3 +2056,47 @@ def test_theme_id_path_traversal_blocked(running_server, tmp_path):
 
     # Sentinel unveraendert nach allen HTTP-Versuchen
     assert sentinel.exists(), "Sentinel nach HTTP-Versuchen verschwunden"
+
+
+from bewerber.discovery.keyword_variants import KeywordVariant, KeywordVariants
+
+
+def _fake_generation_llm(mocker, variants):
+    fake = mocker.Mock()
+    fake.structured.return_value = KeywordVariants(variants=variants)
+    mocker.patch("bewerber.shared.llm.LLMClient.for_generation", return_value=fake)
+
+
+def test_generate_keywords_returns_variants(running_server, mocker):
+    _fake_generation_llm(mocker, [
+        KeywordVariant(keyword="Project Manager", kategorie="Übersetzung"),
+        KeywordVariant(keyword="Projektleiter", kategorie="Synonym"),
+    ])
+    code, body = _post_json(
+        running_server, "/api/keywords/generate",
+        {"seeds": ["Projektmanager"], "description": ""},
+    )
+    assert code == 200
+    kws = [v["keyword"] for v in body["variants"]]
+    assert "Project Manager" in kws and "Projektleiter" in kws
+    assert all("kategorie" in v for v in body["variants"])
+
+
+def test_generate_keywords_requires_session(running_server, mocker):
+    _fake_generation_llm(mocker, [KeywordVariant(keyword="X", kategorie="Synonym")])
+    code, body = _post_json(
+        running_server, "/api/keywords/generate",
+        {"seeds": ["Projektmanager"], "description": ""},
+        with_session=False,
+    )
+    assert code in (302, 401, 403)  # zentrale Auth-Gate weist ab
+
+
+def test_generate_keywords_empty_input_returns_400(running_server, mocker):
+    _fake_generation_llm(mocker, [])
+    code, body = _post_json(
+        running_server, "/api/keywords/generate",
+        {"seeds": [], "description": "   "},
+    )
+    assert code == 400
+    assert "error" in body
