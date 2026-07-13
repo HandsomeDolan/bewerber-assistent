@@ -17,6 +17,10 @@ and tracks the application pipeline in a local web dashboard.
 - **Anlagen-Verwaltung**: Zeugnisse/Urkunden zentral pflegen, werden bei jedem Tailor-Lauf automatisch in den Bewerbungsordner kopiert.
 - **LLM-Fallback-Chain**: konfigurierbar Gemini ↔ OpenAI mit per-Role-Modellen (cheap-mini für Scoring, full model für Generation).
 - **Status-Tracking**: pro Job — entdeckt / vorgemerkt / getailored / beworben / eingeladen / abgelehnt / abgewählt / etc., inkl. Beworben-am-Datum und Freitext-Notizen.
+- **Drei Ansichten**: Tabelle, Kanban (Drag & Drop) und Fokus (kuratierte Gruppen: „Jetzt dran", „Neu & vielversprechend", „Warten auf Antwort").
+- **Discover-Run mit Fortschritt + Abbruch**: Live-Anzeige („linkedin: Job 5/28 gescored"), Zwischenspeichern pro Board, Abbrechen-Button; LLM-Calls mit hartem Timeout + Circuit-Breaker gegen erschöpfte Provider-Quotas.
+- **Organic-Design**: warmes Design-System (Caprasimo/Figtree, Terracotta/Salbei) über alle Seiten, Quelle in `bewerber/Organic Dashboard Redesign/` (lokal).
+- **Multi-User**: Login + Registrierung per Invite-Code, Workspace pro Nutzer, Account-Selbstlöschung (Menü am Namen) inkl. restloser Datenlöschung.
 
 ## Voraussetzungen
 

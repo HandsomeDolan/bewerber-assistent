@@ -26,9 +26,14 @@ bewerber/dashboard.html
 bewerber/logs/
 bewerber/searches.yaml.*-full
 bewerber/Logs.txt
+bewerber/neues design/
+bewerber/Organic Dashboard Redesign/
 
 # Internal development planning docs (kept local, not pushed to public repo)
 docs/superpowers/
+
+# Private Dateien im Projektordner (nicht Teil des Projekts)
+EWERK*
 
 # OS
 .DS_Store
