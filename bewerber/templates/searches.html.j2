@@ -311,8 +311,10 @@ setDirty(false);
 
 // --- Keyword-Varianten-Modal ---
 let kwActiveCard = null;
+let kwReqSeq = 0;   // invalidates in-flight generate requests when the modal state changes
 
 function kwOpen(card) {
+  kwReqSeq++;
   kwActiveCard = card;
   document.getElementById("kw-desc").value = "";
   document.getElementById("kw-manual").value = "";
@@ -330,6 +332,7 @@ function kwOpen(card) {
 }
 
 function kwClose() {
+  kwReqSeq++;
   document.getElementById("kw-modal").style.display = "none";
   kwActiveCard = null;
 }
@@ -365,6 +368,7 @@ document.getElementById("kw-generate").addEventListener("click", async () => {
   seeds.push(...linesToList(kwActiveCard.querySelector(".keywords").value));
   const description = document.getElementById("kw-desc").value.trim();
 
+  const myReq = ++kwReqSeq;
   status.textContent = "Generiere Varianten …";
   document.getElementById("kw-generate").disabled = true;
   try {
@@ -374,12 +378,13 @@ document.getElementById("kw-generate").addEventListener("click", async () => {
       body: JSON.stringify({seeds, description}),
     });
     const body = await resp.json();
+    if (myReq !== kwReqSeq) return;   // modal moved on (closed/reopened) - drop stale response
     if (!resp.ok) {
       status.textContent = "Fehler: " + (body.error || resp.status);
       return;
     }
     renderSuggestions(body.variants || []);
-    status.textContent = body.variants.length
+    status.textContent = (body.variants || []).length
       ? `${body.variants.length} Vorschläge — abwählen, was nicht passt.`
       : "Keine neuen Varianten gefunden.";
     document.getElementById("kw-generate").style.display = "none";
@@ -387,7 +392,7 @@ document.getElementById("kw-generate").addEventListener("click", async () => {
   } catch (e) {
     status.textContent = "Netzfehler: " + e.message;
   } finally {
-    document.getElementById("kw-generate").disabled = false;
+    if (myReq === kwReqSeq) document.getElementById("kw-generate").disabled = false;
   }
 });
 
