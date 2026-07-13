@@ -3,42 +3,46 @@
 <head>
 <meta charset="utf-8">
 <title>Anlagen verwalten - Bewerber</title>
+{% include "_organic_ds.html.j2" %}
 <style>
-  body { font-family: "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 0; background: #f7f8fa; color: #222; }
-  header { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #ddd; padding: 12px 24px; display: flex; align-items: center; gap: 24px; z-index: 10; }
-  header h1 { margin: 0; font-size: 18px; flex: 1; }
-  header a.back { color: #555; text-decoration: none; font-size: 14px; }
-  header a.back:hover { color: #000; }
-  .toolbar { display: flex; gap: 8px; }
-  button { font: inherit; padding: 6px 14px; border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer; }
-  button:hover:not(:disabled) { background: #f0f0f0; }
-  button:disabled { opacity: 0.4; cursor: not-allowed; }
-  button.primary { background: #2266cc; color: #fff; border-color: #2266cc; font-weight: 600; }
-  button.primary:hover:not(:disabled) { background: #1a55b3; }
-  button.danger { color: #c33; border-color: #d8a0a0; }
-  button.danger:hover { background: #fdf0f0; }
-  button.small { padding: 4px 10px; font-size: 12px; }
-  main { max-width: 880px; margin: 24px auto; padding: 0 16px; }
-  section { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 18px 22px; margin-bottom: 20px; }
-  section h2 { margin: 0 0 14px 0; font-size: 16px; border-bottom: 1px solid #eee; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-  label.field { display: block; margin: 12px 0; font-size: 13px; color: #444; }
-  label.field > span { display: block; margin-bottom: 4px; font-weight: 600; color: #333; }
-  label.field > small { display: block; font-weight: normal; color: #888; font-size: 11px; margin-bottom: 4px; }
-  input[type="text"], textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font: inherit; font-size: 13px; }
-  textarea { font-family: ui-monospace, "SF Mono", Menlo, monospace; resize: vertical; min-height: 60px; }
-  .anlage-card { border: 1px solid #d8d8d8; border-radius: 5px; padding: 14px 18px; margin: 14px 0; background: #fcfcfc; }
-  .anlage-card .head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--color-divider);
+    padding: var(--space-3) var(--space-4);
+    display: flex; align-items: center; gap: var(--space-4);
+  }
+  header h1 { margin: 0; font-size: 22px; flex: 1; }
+  header a.back { color: inherit; text-decoration: none; font-size: 14px; }
+  header a.back:hover { color: var(--color-accent); }
+  .toolbar { display: flex; gap: var(--space-2); }
+  main { max-width: 880px; margin: var(--space-6) auto; padding: 0 var(--space-4); }
+  section.card { margin-bottom: var(--space-4); }
+  section.card > h2 { font-size: 24px; margin: 0; display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
+  label.field { display: block; margin: var(--space-3) 0; font-size: 13px; }
+  label.field > span { display: block; margin-bottom: 4px; font-weight: 600; }
+  label.field > small { display: block; color: color-mix(in srgb, var(--color-text) 55%, transparent); font-size: 11px; margin-bottom: 4px; }
+  textarea.input { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; border-radius: var(--radius-lg); min-height: 60px; }
+  .anlage-card {
+    border: 1px solid var(--color-divider); border-radius: var(--radius-lg);
+    padding: var(--space-3) var(--space-4); margin: var(--space-3) 0;
+    background: color-mix(in srgb, var(--color-surface) 55%, transparent);
+  }
+  .anlage-card .head { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
   .anlage-card .head input.label-input { flex: 1; font-weight: 600; font-size: 14px; }
-  .file-status { font-size: 12px; margin-top: 6px; padding: 6px 10px; border-radius: 4px; display: none; white-space: pre-wrap; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-  .file-status.ok { display: block; background: #e8f7ec; color: #1a5b2b; border: 1px solid #b8e0c2; }
-  .file-status.warn { display: block; background: #fdf6e3; color: #8a5d00; border: 1px solid #f0d495; }
-  .file-status.err { display: block; background: #fde9e9; color: #8a1a1a; border: 1px solid #f3b0b0; }
-  .empty-state { padding: 24px; text-align: center; color: #888; font-style: italic; }
-  #status { padding: 10px 16px; border-radius: 4px; margin-bottom: 16px; display: none; }
-  #status.ok { display: block; background: #e8f7ec; color: #1a5b2b; border: 1px solid #b8e0c2; }
-  #status.error { display: block; background: #fde9e9; color: #8a1a1a; border: 1px solid #f3b0b0; white-space: pre-wrap; }
-  .dirty-flag { color: #c84; font-size: 12px; }
-  .hint { color: #666; font-size: 12px; margin-top: 8px; line-height: 1.5; }
+  .file-status { font-size: 12px; margin-top: 6px; padding: 8px 14px; border-radius: var(--radius-md); display: none; white-space: pre-wrap; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .file-status.ok { display: block; background: var(--color-accent-2-100); color: var(--color-accent-2-800); }
+  .file-status.warn { display: block; background: var(--color-accent-100); color: var(--color-accent-700); }
+  .file-status.err { display: block; background: var(--color-accent-100); color: var(--color-accent-800); }
+  .empty-state { padding: var(--space-6); text-align: center; color: color-mix(in srgb, var(--color-text) 50%, transparent); font-style: italic; }
+  #status { padding: 10px 18px; border-radius: var(--radius-md); margin-bottom: var(--space-3); display: none; }
+  #status.ok { display: block; background: var(--color-accent-2-100); color: var(--color-accent-2-800); }
+  #status.error { display: block; background: var(--color-accent-100); color: var(--color-accent-800); white-space: pre-wrap; }
+  .dirty-flag { color: var(--color-accent-600); font-size: 12px; font-family: var(--font-body); }
+  .hint { color: color-mix(in srgb, var(--color-text) 60%, transparent); font-size: 12px; margin-top: var(--space-2); line-height: 1.5; }
+  .upload-box { margin: var(--space-3) 0; padding: var(--space-3); border: 1.5px dashed var(--color-divider); border-radius: var(--radius-lg); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+  .upload-box label { font-weight: 600; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -46,18 +50,18 @@
   <a class="back" href="/">← Dashboard</a>
   <h1>Anlagen verwalten <span id="dirty" class="dirty-flag" style="display:none;"> (ungespeicherte Aenderungen)</span></h1>
   <div class="toolbar">
-    <button id="reload-btn" title="Aenderungen verwerfen">↺ Neu laden</button>
-    <button id="save-btn" class="primary" disabled>💾 Speichern</button>
+    <button class="btn btn-secondary" id="reload-btn" title="Aenderungen verwerfen">↺ Neu laden</button>
+    <button class="btn btn-primary" id="save-btn" disabled>Speichern</button>
   </div>
 </header>
 
 <main>
   <div id="status"></div>
 
-  <section>
+  <section class="card elev-sm">
     <h2>
       Anlagen
-      <button id="add-btn">+ Anlage hinzufuegen</button>
+      <button class="btn btn-secondary" id="add-btn">+ Anlage hinzufuegen</button>
     </h2>
     <p class="hint">
       Hinterlege hier die Dateien (Zeugnisse, Urkunden), die bei jedem
@@ -66,12 +70,12 @@
       "Lebenslauf" wird automatisch vorangestellt - hier NICHT eintragen.
       Pfade muessen <b>absolut</b> sein.
     </p>
-    <div style="margin:12px 0; padding:10px; border:1px dashed #bbb; border-radius:4px;">
-      <label style="font-weight:600; font-size:13px;">Dateien hochladen (PDF):
+    <div class="upload-box">
+      <label>Dateien hochladen (PDF):
         <input type="file" id="anlagen-upload" multiple accept="application/pdf">
       </label>
-      <button type="button" onclick="uploadAnlagen()">Hochladen</button>
-      <span id="anlagen-upload-status" style="font-size:12px; margin-left:8px;"></span>
+      <button class="btn btn-secondary" type="button" onclick="uploadAnlagen()">Hochladen</button>
+      <span id="anlagen-upload-status" style="font-size:12px;"></span>
     </div>
     <div id="anlagen-list">
       <div class="empty-state">Noch keine Anlagen konfiguriert.</div>
@@ -82,15 +86,15 @@
 <template id="anlage-card-template">
   <div class="anlage-card">
     <div class="head">
-      <input type="text" class="label-input" placeholder="Label (z.B. Arbeitszeugnisse, Technikerzeugnis)" required>
-      <button class="verify-btn small" type="button" title="Existenz pruefen">🔍 Pruefen</button>
-      <button class="dup-btn small" type="button" title="Duplizieren">⎘</button>
-      <button class="del-btn small danger" type="button" title="Loeschen">×</button>
+      <input type="text" class="input label-input" placeholder="Label (z.B. Arbeitszeugnisse, Technikerzeugnis)" required>
+      <button class="btn btn-secondary verify-btn" type="button" title="Existenz pruefen" style="font-size:12px;">Pruefen</button>
+      <button class="btn btn-icon btn-secondary dup-btn" type="button" title="Duplizieren">⧉</button>
+      <button class="btn btn-icon btn-secondary del-btn" type="button" title="Loeschen" style="color: var(--color-accent-800);">✕</button>
     </div>
     <label class="field">
       <span>Dateien</span>
       <small>Absolute Pfade, eine Datei pro Zeile. Mehrere Zeilen unter einem Label, wenn ein Dokument auf mehrere PDFs verteilt ist (z.B. Technikerzeugnis Seite 1 + 2).</small>
-      <textarea class="files-input" rows="3" placeholder="/absoluter/Pfad/zu/deinem/_anlagen/Arbeitszeugnis.pdf"></textarea>
+      <textarea class="input files-input" rows="3" placeholder="/absoluter/Pfad/zu/deinem/_anlagen/Arbeitszeugnis.pdf"></textarea>
     </label>
     <div class="file-status"></div>
   </div>

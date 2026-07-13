@@ -3,252 +3,332 @@
 <head>
 <meta charset="utf-8">
 <title>Bewerber-Dashboard</title>
+{% include "_organic_ds.html.j2" %}
 <style>
-* { box-sizing: border-box; }
-body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.4; color: #1a1a1a; margin: 0; padding: 16px 24px; background: #fafafa; }
-h1 { font-size: 24px; margin: 0 0 8px 0; }
-.meta { color: #555; font-size: 12px; margin-bottom: 16px; }
-.controls { display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
-.controls label { font-size: 12px; color: #555; }
-.controls input, .controls select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
-.controls input[type=search] { width: 280px; }
-table { width: 100%; border-collapse: collapse; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
-th { background: #f0f0f0; font-weight: 600; cursor: pointer; user-select: none; }
-th:hover { background: #e8e8e8; }
-tr:hover { background: #f8f8f8; }
-.score { font-weight: 700; text-align: center; min-width: 36px; }
-.score-9, .score-10 { color: #1a7a1a; }
-.score-7, .score-8 { color: #4a6a1a; }
-.score-5, .score-6 { color: #aa7a1a; }
-.score-1, .score-2, .score-3, .score-4 { color: #aa3a1a; }
-.status { padding: 2px 8px; border-radius: 3px; font-size: 12px; white-space: nowrap; }
-.status-discovered { background: #e8e8e8; }
-.status-shortlisted { background: #d8e8f8; }
-.status-tailored { background: #f8e8d8; }
-.status-applied { background: #d8f0d8; }
-.status-interview { background: #f0d8f8; }
-.status-offer { background: #b0f0b0; font-weight: 700; }
-.status-rejected { background: #f8d8d8; color: #555; }
-.status-withdrawn { background: #e0e0e0; color: #777; }
-.status-declined { background: #ede0e8; color: #777; font-style: italic; }
-.status-select-wrap { font-size: 12px; color: #444; margin-left: 12px; }
-.status-select-wrap select { font: inherit; font-size: 12px; padding: 2px 6px; margin-left: 4px; }
-.errors { background: #fff4e0; border: 1px solid #f0c890; padding: 8px 12px; margin: 12px 0; border-radius: 4px; font-size: 12px; }
-.errors b { color: #aa5a00; }
-.detail { display: none; padding: 12px; background: #fafafa; border-left: 3px solid #888; margin: 4px 0; }
-tr.expanded + tr.detail { display: table-row; }
-.detail h4 { margin: 4px 0; }
-.detail .links a { display: inline-block; margin-right: 12px; }
-.muted { color: #999; }
-.action-btn {
-  display: inline-block; margin: 4px 8px 4px 0;
-  padding: 6px 12px; border: 1px solid #1a3a5c;
-  background: #1a3a5c; color: white; border-radius: 4px;
-  font-size: 13px; cursor: pointer; font-weight: 600;
+body { font-size: 14px; line-height: 1.45; padding: var(--space-4) var(--space-6); }
+h1 { font-size: 34px; margin: 0 0 10px 0; }
+.top-nav a.nav-link {
+  padding: 6px 14px; border: 1px solid var(--color-divider); border-radius: 999px;
+  text-decoration: none; color: var(--color-text); margin-right: 6px;
+  font-family: var(--font-heading); font-size: 13px;
 }
-.action-btn:hover { background: #2a4a6c; }
-.action-btn:disabled { background: #888; border-color: #888; cursor: not-allowed; }
+.top-nav a.nav-link:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); color: var(--color-text); }
+.top-nav .user-chip { color: color-mix(in srgb, var(--color-text) 65%, transparent); padding: 5px 10px; border-left: 1px solid var(--color-divider); margin-left: 4px; font-size: 13px; }
+.top-nav .user-chip a { color: var(--color-accent-800); text-decoration: none; margin-left: 8px; }
+.meta { color: color-mix(in srgb, var(--color-text) 60%, transparent); font-size: 12px; margin-bottom: var(--space-3); display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.controls { display: flex; gap: var(--space-3); flex-wrap: wrap; margin: var(--space-3) 0; align-items: end; }
+.controls label { font-size: 12px; color: color-mix(in srgb, var(--color-text) 65%, transparent); }
+.controls input, .controls select {
+  padding: 7px 14px; border: 1px solid var(--color-divider); border-radius: 999px;
+  font: inherit; font-size: 14px; background: var(--color-surface); color: var(--color-text);
+}
+.controls input[type=search] { width: 280px; }
+.controls input:focus-visible, .controls select:focus-visible { border-color: var(--color-accent); }
+table#jobs-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--color-surface); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); vertical-align: top; }
+th {
+  background: color-mix(in srgb, var(--color-neutral-300) 45%, var(--color-surface));
+  font-weight: 600; cursor: pointer; user-select: none;
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 65%, transparent);
+}
+th:hover { background: var(--color-neutral-300); }
+tbody tr:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+.score { font-weight: 700; text-align: center; min-width: 36px; font-family: var(--font-heading); }
+.score-9, .score-10 { color: var(--color-accent-2-700); }
+.score-7, .score-8 { color: var(--color-accent-2-600); }
+.score-5, .score-6 { color: var(--color-accent-600); }
+.score-1, .score-2, .score-3, .score-4 { color: var(--color-accent-800); }
+.status { padding: 3px 10px; border-radius: 999px; font-size: 11px; letter-spacing: 0.02em; white-space: nowrap; display: inline-block; }
+.status-discovered { background: var(--color-neutral-200); color: var(--color-neutral-800); }
+.status-shortlisted { background: var(--color-accent-2-100); color: var(--color-accent-2-800); }
+.status-tailored { background: var(--color-accent-100); color: var(--color-accent-800); }
+.status-applied { background: var(--color-accent-2-200); color: var(--color-accent-2-900); }
+.status-interview { background: var(--color-accent-300); color: var(--color-accent-900); }
+.status-offer { background: var(--color-accent-2-600); color: var(--color-bg); font-weight: 700; }
+.status-rejected { background: var(--color-neutral-300); color: var(--color-neutral-700); }
+.status-withdrawn { background: var(--color-neutral-200); color: var(--color-neutral-600); }
+.status-declined { background: var(--color-neutral-200); color: var(--color-neutral-600); font-style: italic; }
+.status-select-wrap { font-size: 12px; margin-left: 12px; }
+.status-select-wrap select { font: inherit; font-size: 12px; padding: 3px 10px; margin-left: 4px; border-radius: 999px; border: 1px solid var(--color-divider); background: var(--color-bg); }
+.errors { background: var(--color-accent-100); color: var(--color-accent-800); padding: 10px 16px; margin: var(--space-3) 0; border-radius: var(--radius-md); font-size: 12px; }
+.errors b { color: var(--color-accent-800); }
+.detail { display: none; padding: var(--space-3); background: color-mix(in srgb, var(--color-bg) 60%, var(--color-surface)); border-left: 3px solid var(--color-accent); margin: 4px 0; }
+tr.expanded + tr.detail { display: table-row; }
+.detail h4 { margin: 4px 0; font-size: 16px; }
+.detail .links a { display: inline-block; margin-right: 12px; }
+.muted { color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+.action-btn {
+  display: inline-flex; align-items: center; gap: 6px; margin: 4px 8px 4px 0;
+  padding: 7px 16px; border: 1px solid var(--color-divider);
+  background: transparent; color: var(--color-text); border-radius: 999px;
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 13px; cursor: pointer;
+}
+.action-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.action-btn.primary { background: var(--color-accent); color: var(--color-bg); border-color: transparent; }
+.action-btn.primary:hover:not(:disabled) { background: var(--color-accent-600); }
 .tailor-form {
-  background: #f4f6f8; border: 1px solid #d8dde2; border-radius: 4px;
-  padding: 8px 10px; margin: 8px 0;
+  background: color-mix(in srgb, var(--color-bg) 70%, var(--color-surface));
+  border: 1px solid var(--color-divider); border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3); margin: var(--space-2) 0;
   display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
 }
-.tailor-form label { font-size: 11px; color: #333; display: flex; flex-direction: column; }
-.tailor-form .req-mark { color: #c33; margin-left: 2px; }
+.tailor-form label { font-size: 11px; display: flex; flex-direction: column; }
+.tailor-form .req-mark { color: var(--color-accent-800); margin-left: 2px; }
 .tailor-form .label-text { display: inline-block; font-weight: 600; }
+.tailor-form input {
+  margin-top: 2px; padding: 6px 12px;
+  border: 1px solid var(--color-divider); border-radius: 999px;
+  font-size: 13px; min-width: 180px; background: var(--color-surface); color: var(--color-text);
+}
+.tailor-form input:invalid { border-color: var(--color-accent-400); }
+.tailor-form select { border-radius: 999px; padding: 5px 10px; border: 1px solid var(--color-divider); background: var(--color-surface); font: inherit; font-size: 13px; }
 .desc-toggle {
   background: none; border: none; padding: 0 4px;
-  color: #2266cc; cursor: pointer; font: inherit; font-size: 12px;
-  text-decoration: underline;
+  color: var(--color-accent); cursor: pointer; font: inherit; font-size: 12px;
+  text-decoration: underline; text-underline-offset: 3px;
 }
-.desc-toggle:hover { color: #1a55b3; }
+.desc-toggle:hover { color: var(--color-accent-600); }
 .arbeitsmodell-badge {
-  display: inline-block; margin-left: 6px; padding: 1px 6px;
-  font-size: 10px; font-weight: 600; border-radius: 3px;
+  display: inline-block; margin-left: 6px; padding: 2px 8px;
+  font-size: 10px; font-weight: 600; border-radius: 999px;
   text-transform: uppercase; letter-spacing: 0.3pt;
 }
-.arbeitsmodell-remote { background: #e6f4ea; color: #1f6d31; border: 1px solid #b8dec3; }
-.arbeitsmodell-hybrid { background: #e8f0fc; color: #1f4e8c; border: 1px solid #b8cee8; }
-
-.notes-cell { max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-style: italic; color: #555; }
-.notes-edit { width: 100%; min-height: 80px; box-sizing: border-box; padding: 8px 10px; border: 1px solid #c0c8d0; border-radius: 4px; font: inherit; font-size: 13px; resize: vertical; margin: 4px 0; }
-.notes-save-btn { font: inherit; font-size: 12px; padding: 3px 10px; border: 1px solid #2266cc; background: #2266cc; color: #fff; border-radius: 3px; cursor: pointer; margin-left: 8px; font-weight: 600; }
-.notes-save-btn:hover { background: #1a55b3; }
+.arbeitsmodell-remote { background: var(--color-accent-2-100); color: var(--color-accent-2-800); }
+.arbeitsmodell-hybrid { background: var(--color-accent-100); color: var(--color-accent-700); }
+.notes-cell { max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-style: italic; color: color-mix(in srgb, var(--color-text) 60%, transparent); }
+.notes-edit { width: 100%; min-height: 80px; box-sizing: border-box; padding: 10px 14px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg); font: inherit; font-size: 13px; resize: vertical; margin: 4px 0; background: var(--color-surface); }
+.notes-save-btn { font-family: var(--font-heading); font-size: 12px; padding: 4px 14px; border: 1px solid transparent; background: var(--color-accent); color: var(--color-bg); border-radius: 999px; cursor: pointer; margin-left: 8px; }
+.notes-save-btn:hover { background: var(--color-accent-600); }
 .notes-status { font-size: 12px; margin-left: 8px; font-weight: normal; }
-
 .batch-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 1000; }
-.batch-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
+.batch-modal-backdrop { position: absolute; inset: 0; background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent); }
 .batch-modal-content {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  background: #fff; border-radius: 8px; padding: 20px 26px;
+  background: var(--color-surface); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-6);
   width: 640px; max-width: 92vw; max-height: 80vh; overflow-y: auto;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  box-shadow: var(--shadow-lg);
 }
-.batch-modal-content h2 { margin: 0 0 12px 0; font-size: 18px; }
+.batch-modal-content h2 { margin: 0 0 var(--space-3) 0; font-size: 22px; }
 .batch-row {
   display: flex; align-items: center; gap: 10px;
-  padding: 8px 10px; border-bottom: 1px solid #eee;
+  padding: 8px 10px; border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
   font-size: 13px;
 }
 .batch-row:last-child { border-bottom: none; }
 .batch-row .label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.batch-row .bar-wrap { width: 140px; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
-.batch-row .bar { height: 100%; background: #2266cc; width: 0%; transition: width 0.4s; }
-.batch-row.done { color: #1f6d31; }
-.batch-row.done .bar { width: 100% !important; background: #34a853; }
-.batch-row.error { color: #c33; }
+.batch-row .bar-wrap { width: 140px; height: 8px; background: var(--color-neutral-300); border-radius: 4px; overflow: hidden; }
+.batch-row .bar { height: 100%; background: var(--color-accent); width: 0%; transition: width 0.4s; }
+.batch-row.done { color: var(--color-accent-2-700); }
+.batch-row.done .bar { width: 100% !important; background: var(--color-accent-2-500); }
+.batch-row.error { color: var(--color-accent-800); }
 .batch-row .icon { width: 18px; text-align: center; font-weight: 700; }
 .batch-row.error .bar-wrap { display: none; }
 .batch-row.done .bar-wrap { display: none; }
-.batch-row.error .err-msg { color: #c33; font-size: 11px; font-style: italic; }
-
-.failed-urls-section { background: #fff; border: 1px solid #f3c2c2; border-radius: 5px; padding: 12px 16px; margin: 16px 0; }
-.failed-urls-section h3 { margin: 0 0 10px 0; font-size: 14px; color: #8a1a1a; display: flex; justify-content: space-between; align-items: center; }
+.batch-row.error .err-msg { color: var(--color-accent-800); font-size: 11px; font-style: italic; }
+.failed-urls-section { background: var(--color-surface); border: 1px solid var(--color-accent-300); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4); margin: var(--space-3) 0; }
+.failed-urls-section h3 { margin: 0 0 10px 0; font-size: 18px; color: var(--color-accent-800); display: flex; justify-content: space-between; align-items: center; }
 .failed-url-row {
   display: grid; grid-template-columns: 1fr auto auto auto;
   gap: 8px; align-items: center; padding: 6px 0;
-  border-bottom: 1px solid #fbe6e6; font-size: 13px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 15%, transparent); font-size: 13px;
 }
 .failed-url-row:last-child { border-bottom: none; }
 .failed-url-row .url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
-.failed-url-row .err { color: #c33; font-size: 11px; font-style: italic; }
-.failed-url-row button { font-size: 11px; padding: 3px 10px; }
-
+.failed-url-row .err { color: var(--color-accent-800); font-size: 11px; font-style: italic; }
+.failed-url-row button { font-size: 11px; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--color-divider); background: transparent; cursor: pointer; font-family: var(--font-heading); }
+.failed-url-row button:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
 .select-col { width: 32px; text-align: center; }
+.select-col input, .row-select { accent-color: var(--color-accent); }
 .batch-action-bar {
-  background: #e8f0fc; border: 1px solid #b8cee8;
-  padding: 10px 16px; margin: 12px 0; border-radius: 5px;
+  background: var(--color-accent-2-100); color: var(--color-accent-2-900);
+  padding: 10px 18px; margin: var(--space-3) 0; border-radius: 999px;
   display: flex; align-items: center; gap: 12px;
-  position: sticky; top: 0; z-index: 50;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  position: sticky; top: 8px; z-index: 50;
+  box-shadow: var(--shadow-md);
 }
 .tailor-status { font-size: 12px; margin-left: 10px; }
-.action-btn.primary { background: #2266cc; color: #fff; border-color: #2266cc; font-weight: 600; }
-.action-btn.primary:hover:not(:disabled) { background: #1a55b3; }
-
-.add-posting { background: #fff; border: 1px solid #d8e0e8; border-radius: 5px; padding: 10px 16px; margin: 12px 0 14px 0; }
-.add-posting summary { cursor: pointer; font-weight: 600; color: #2266cc; padding: 4px 0; }
-.add-posting summary:hover { color: #1a55b3; }
-.add-grid { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 10px; align-items: end; margin: 12px 0 8px 0; }
-.add-grid label { font-size: 12px; color: #555; display: flex; flex-direction: column; }
-.add-grid input { padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font: inherit; font-size: 13px; margin-top: 3px; }
-.add-grid button { padding: 7px 14px; background: #2266cc; color: #fff; border: 1px solid #2266cc; border-radius: 4px; font-weight: 600; cursor: pointer; }
-.add-grid button:hover:not(:disabled) { background: #1a55b3; }
-.add-grid button:disabled { opacity: 0.5; cursor: not-allowed; }
-.add-hint { font-size: 12px; color: #666; margin-top: 6px; line-height: 1.5; }
-#add-status { font-size: 13px; padding: 6px 10px; border-radius: 4px; margin-top: 6px; }
-.tailor-form input {
-  margin-top: 2px; padding: 4px 6px;
-  border: 1px solid #c0c8d0; border-radius: 3px;
-  font-size: 13px; min-width: 180px;
-}
-.tailor-form input:invalid { border-color: #d8a0a0; }
+.add-posting { background: var(--color-surface); border-radius: var(--radius-lg); padding: var(--space-2) var(--space-4); margin: var(--space-3) 0; box-shadow: var(--shadow-sm); }
+.add-posting summary { cursor: pointer; font-family: var(--font-heading); color: var(--color-accent); padding: 6px 0; }
+.add-posting summary:hover { color: var(--color-accent-600); }
+.add-posting textarea { background: var(--color-bg); border: 1px solid var(--color-divider); border-radius: var(--radius-lg); width: 100%; box-sizing: border-box; padding: 10px 14px; font-size: 13px; font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--color-text); }
+.add-hint { font-size: 12px; color: color-mix(in srgb, var(--color-text) 60%, transparent); margin-top: 6px; line-height: 1.5; }
 .cmd-box {
   margin: 6px 0; padding: 8px 10px;
-  background: #1e1e1e; color: #d8d8d8;
-  border-radius: 4px;
+  background: var(--color-neutral-900); color: var(--color-neutral-200);
+  border-radius: var(--radius-md);
   font-family: "SF Mono", "Monaco", monospace;
   font-size: 11.5px; white-space: pre-wrap; word-break: break-all;
   display: none;
 }
 .cmd-box.visible { display: block; }
-.copy-toast { display: inline-block; color: #1a7a1a; font-size: 12px; font-weight: 600; margin-left: 8px; }
+.copy-toast { display: inline-block; color: var(--color-accent-2-700); font-size: 12px; font-weight: 600; margin-left: 8px; }
 .applied-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 4px 12px 4px 0; font-weight: 600; cursor: pointer; }
-.applied-toggle input { width: 18px; height: 18px; cursor: pointer; }
+.applied-toggle input { width: 18px; height: 18px; cursor: pointer; accent-color: var(--color-accent); }
 .folder-btn {
-  display: inline-block; margin: 4px 8px 4px 0;
-  padding: 6px 12px; border: 1px solid #888;
-  background: white; color: #1a3a5c; border-radius: 4px;
-  font-size: 13px; cursor: pointer; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 6px; margin: 4px 8px 4px 0;
+  padding: 7px 16px; border: 1px solid var(--color-divider);
+  background: transparent; color: var(--color-text); border-radius: 999px;
+  font-family: var(--font-heading); font-size: 13px; cursor: pointer;
   text-decoration: none;
 }
-.folder-btn:hover { background: #f4f6f8; }
-.api-warn { color: #aa5a00; font-size: 11px; margin-left: 8px; }
+.folder-btn:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.api-warn { color: var(--color-accent-700); font-size: 11px; margin-left: 8px; }
 .applied-link-input {
-  margin-left: 8px; padding: 4px 6px;
-  border: 1px solid #c0c8d0; border-radius: 3px;
-  font-size: 12px; min-width: 220px;
+  margin-left: 8px; padding: 5px 12px;
+  border: 1px solid var(--color-divider); border-radius: 999px;
+  font-size: 12px; min-width: 220px; background: var(--color-surface);
 }
 #kanban-view { display: none; gap: 10px; overflow-x: auto; padding: 8px 0; }
 #kanban-view.active { display: flex; }
-.kanban-col { flex: 1 0 200px; min-width: 200px; background: #f4f4f6; border-radius: 6px; padding: 6px; }
-.kanban-col-title { font-weight: 700; font-size: 12px; text-transform: uppercase; color: #555; padding: 4px 6px; display: flex; justify-content: space-between; }
-.kanban-col.dragover { outline: 2px dashed #2266cc; outline-offset: -2px; }
-.kanban-card { background: #fff; border: 1px solid #ddd; border-radius: 5px; padding: 8px; margin: 6px 0; cursor: grab; font-size: 13px; }
+.kanban-col { flex: 1 0 200px; min-width: 200px; background: color-mix(in srgb, var(--color-surface) 70%, transparent); border-radius: var(--radius-lg); padding: 8px; }
+.kanban-col-title { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: color-mix(in srgb, var(--color-text) 60%, transparent); padding: 4px 6px; display: flex; justify-content: space-between; }
+.kanban-col.dragover { outline: 2px dashed var(--color-accent); outline-offset: -2px; }
+.kanban-card { background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); padding: 10px 12px; margin: 6px 0; cursor: grab; font-size: 13px; transition: box-shadow .1s; }
 .kanban-card:active { cursor: grabbing; }
-.kanban-card .kc-company { font-weight: 700; }
-.kanban-card .kc-title { color: #333; }
+.kanban-card:hover { box-shadow: var(--shadow-md); }
+.kanban-card .kc-company { font-weight: 700; font-family: var(--font-heading); }
+.kanban-card .kc-title { color: color-mix(in srgb, var(--color-text) 80%, transparent); }
 .kanban-card .kc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
 .kanban-done-wrap { flex: 0 0 auto; }
-.view-toggle button { padding: 5px 12px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
-.view-toggle button.active { background: #2266cc; color: #fff; border-color: #2266cc; }
-.view-toggle button:first-child { border-radius: 4px 0 0 4px; }
-.view-toggle button:last-child { border-radius: 0 4px 4px 0; }
-.kanban-card { transition: box-shadow .1s; }
-.kanban-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.view-toggle { display: inline-flex; overflow: hidden; border: 1px solid var(--color-divider); border-radius: 999px; }
+.view-toggle button { padding: 7px 16px; border: none; background: transparent; cursor: pointer; font-family: var(--font-heading); font-size: 13px; color: var(--color-text); }
+.view-toggle button + button { border-left: 1px solid var(--color-divider); }
+.view-toggle button.active { background: var(--color-accent); color: var(--color-bg); }
+.view-toggle button:not(.active):hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+/* Fokus-View: drei kuratierte Gruppen statt roher Liste */
+#fokus-view { display: none; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-3); padding: 8px 0; }
+#fokus-view.active { display: grid; }
+.fokus-group { background: color-mix(in srgb, var(--color-surface) 70%, transparent); border-radius: var(--radius-lg); padding: var(--space-3); }
+.fokus-group h3 { font-size: 20px; margin: 0; }
+.fokus-group .fokus-hint { font-size: 12px; color: color-mix(in srgb, var(--color-text) 55%, transparent); margin: 2px 0 10px; }
+.fokus-card { background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); padding: 12px 14px; margin: 8px 0; font-size: 13px; box-shadow: var(--shadow-sm); }
+.fokus-card .fc-head { display: flex; align-items: baseline; gap: 8px; }
+.fokus-card .fc-company { font-weight: 700; font-family: var(--font-heading); font-size: 15px; }
+.fokus-card .fc-age { margin-left: auto; font-size: 11px; color: color-mix(in srgb, var(--color-text) 50%, transparent); }
+.fokus-card .fc-title { color: color-mix(in srgb, var(--color-text) 80%, transparent); margin: 2px 0 8px; }
+.fokus-card .fc-foot { display: flex; align-items: center; gap: 8px; }
+.fokus-empty { font-size: 12.5px; font-style: italic; color: color-mix(in srgb, var(--color-text) 45%, transparent); padding: 8px 4px; }
+/* Soll-Layout: Header-Zeile, Score-Badges, transparente Tabelle, Design-Card */
+.header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); margin: var(--space-2) 0 var(--space-3); flex-wrap: wrap; }
+.header-row h1 { font-size: 44px; }
+.header-actions { display: flex; gap: var(--space-2); align-items: center; padding-top: 10px; }
+.score-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 50%;
+  font-family: var(--font-heading); font-size: 15px; color: var(--color-bg);
+  background: var(--color-accent-2-700);
+}
+.score-badge.sb-mid { background: var(--color-accent-500); }
+.score-badge.sb-low { background: var(--color-accent-800); }
+.score-badge.sb-none { background: var(--color-neutral-400); }
+table#jobs-table { background: transparent; box-shadow: none; border-radius: 0; }
+table#jobs-table th { background: transparent; }
+td.company { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 15px; }
+.design-card { background: var(--color-surface); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4); margin: var(--space-3) 0; }
+.design-card select, .controls select { min-height: 36px; }
+.design-card select {
+  padding: 6px 14px; border: 1px solid var(--color-divider); border-radius: 999px;
+  font: inherit; font-size: 13px; background: var(--color-bg); color: var(--color-text);
+}
+.failed-urls-section { background: var(--color-accent-100); border: none; }
+th[data-sort] .arrow { font-size: 11px; margin-left: 3px; }
+
+/* Detail-Ansicht nach Soll: runde Card, Kicker, Skill-Pills, Flag-Zeilen */
+.detail { background: transparent; border-left: none; padding: 4px 0 12px; }
+.detail-card {
+  background: var(--color-surface); border-radius: calc(var(--radius-lg) * 1.15);
+  padding: var(--space-4) var(--space-6); box-shadow: var(--shadow-sm);
+}
+.detail-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.detail-head .head-right { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; }
+.detail-link { color: var(--color-accent); font-family: var(--font-heading); font-size: 14px; text-decoration: none; }
+.detail-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.link-danger {
+  background: none; border: none; cursor: pointer; padding: 4px 6px;
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 14px; color: var(--color-accent-800);
+}
+.link-danger:hover { text-decoration: underline; text-underline-offset: 3px; }
+.detail-kicker {
+  font-family: var(--font-heading); font-size: 13px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  margin: var(--space-3) 0 6px; display: flex; align-items: center; gap: 12px;
+}
+.skill-tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 6px; }
+.skill-tags .tag { font-size: 12px; padding: 4px 12px; }
+.tag-missing { background: var(--color-accent-100); color: var(--color-accent-800); text-decoration: line-through; }
+.red-flag { color: var(--color-accent-800); font-size: 13.5px; margin: 3px 0; }
+
 /* Trello-Style Karten-Modal */
 .card-modal { position: fixed; inset: 0; z-index: 1000; }
-.card-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
-.card-modal-content { position: relative; max-width: 900px; width: 92%; max-height: 88vh; overflow-y: auto; margin: 4vh auto; background: #fff; border-radius: 8px; padding: 22px 26px; box-shadow: 0 10px 40px rgba(0,0,0,0.35); }
-.card-modal-close { position: absolute; top: 6px; right: 14px; border: none; background: none; font-size: 30px; line-height: 1; cursor: pointer; color: #999; }
-.card-modal-close:hover { color: #333; }
+.card-modal-backdrop { position: absolute; inset: 0; background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent); }
+.card-modal-content { position: relative; max-width: 900px; width: 92%; max-height: 88vh; overflow-y: auto; margin: 4vh auto; background: var(--color-surface); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-6); box-shadow: var(--shadow-lg); }
+.card-modal-close { position: absolute; top: 10px; right: 16px; border: none; background: none; font-size: 30px; line-height: 1; cursor: pointer; color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+.card-modal-close:hover { color: var(--color-text); }
 </style>
 </head>
 <body>
-<h1>Bewerber-Dashboard
-  <span style="float:right; font-size:13px; font-weight:normal;">
-    <a href="/anlagen" style="padding:5px 12px; border:1px solid #c0c8d0; border-radius:4px; text-decoration:none; color:#333; margin-right:6px;">🗂 Anlagen verwalten</a>
-    <a href="/searches" style="padding:5px 12px; border:1px solid #c0c8d0; border-radius:4px; text-decoration:none; color:#333; margin-right:6px;">⚙ Suchen bearbeiten</a>
-    {% if current_user %}
-    <span style="color:#555; padding:5px 10px; border-left:1px solid #d8d8d8; margin-left:4px;">
-      👤 {{ current_user }}
-      <a href="#" onclick="logoutFromDashboard(event)" style="color:#c33; text-decoration:none; margin-left:8px;" title="Logout">⎋</a>
-    </span>
-    {% endif %}
+<nav class="nav" style="padding-left:0; padding-right:0; margin-bottom: var(--space-4);">
+  <span style="width:36px; height:36px; border-radius:50%; background: var(--color-accent); color: var(--color-bg); display:inline-flex; align-items:center; justify-content:center; font-family: var(--font-heading); font-size:18px;">b</span>
+  <span class="nav-brand">Bewerber</span>
+  <a href="/" aria-current="page">Dashboard</a>
+  <a href="/searches">Suchen</a>
+  <a href="/anlagen">Anlagen</a>
+  {% if current_user %}
+  <span class="user-chip" style="position: relative; border-left: 1px solid var(--color-divider); padding-left: var(--space-3); display:inline-flex; align-items:center; gap: 10px;">
+    <button id="user-menu-btn" onclick="toggleUserMenu(event)" style="background:none; border:none; cursor:pointer; font:inherit; color:inherit; padding:2px 4px;">{{ current_user }} ▾</button>
+    <a href="#" onclick="logoutFromDashboard(event)" style="color: var(--color-accent);">Logout</a>
+    <div id="user-menu" style="display:none; position:absolute; right:0; top:calc(100% + 8px); min-width:210px; background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); box-shadow: var(--shadow-md); z-index: 500; padding: 6px; text-align: left;">
+      <a href="#" onclick="logoutFromDashboard(event)" style="display:block; padding:8px 12px; border-radius: var(--radius-sm); color: var(--color-text); text-decoration:none;">⎋ Logout</a>
+      <a href="#" onclick="openAccountDeleteModal(event)" style="display:block; padding:8px 12px; border-radius: var(--radius-sm); color: var(--color-accent-800); text-decoration:none;">🗑 Account löschen …</a>
+    </div>
   </span>
-</h1>
-<div class="meta">
-  Letzter Discovery-Run: <b>{{ state.last_discovery_run or "noch nie" }}</b> ·
-  {{ state.jobs | length }} Jobs insgesamt
-  <button id="discover-run-btn" onclick="startDiscoverRun()" style="margin-left:14px; padding:4px 12px; background:#fff; border:1px solid #2266cc; color:#2266cc; border-radius:3px; cursor:pointer; font-size:12px; font-weight:600;">▶ Discover jetzt starten</button>
-  <span id="discover-run-status" style="margin-left:10px; font-size:12px; color:#1f4e8c;"></span>
+  {% endif %}
+</nav>
+
+{% set applied_count = state.jobs.values() | selectattr("status", "equalto", "applied") | list | length %}
+{% set interview_count = state.jobs.values() | selectattr("status", "equalto", "interview") | list | length %}
+<div class="header-row">
+  <div>
+    <h1 style="margin:0 0 6px;">Bewerbungen</h1>
+    <div class="meta" style="margin-bottom:4px;">
+      Letzter Discovery-Run <b>{{ (state.last_discovery_run or "noch nie")[:16] | replace("T", " ") }}</b>
+      · {{ state.jobs | length }} Jobs
+      {% if applied_count %} · {{ applied_count }} beworben{% endif %}
+      {% if interview_count %} · {{ interview_count }} eingeladen{% endif %}
+    </div>
+    <div class="meta" style="margin-bottom:0;">
+      <span id="discover-run-status" style="font-size:12px; color: var(--color-accent-700);"></span>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-secondary" onclick="openAddDialog()">+ Ausschreibung</button>
+    <button class="btn btn-secondary" id="discover-cancel-btn" onclick="cancelDiscoverRun()" style="display:none; color: var(--color-accent-800);">■ Abbrechen</button>
+    <button class="btn btn-primary" id="discover-run-btn" onclick="startDiscoverRun()">▷ Discover starten</button>
+  </div>
 </div>
 
-<div class="add-posting">
-  <details>
-    <summary>+ Ausschreibung manuell hinzufuegen (Stepstone, LinkedIn, etc.)</summary>
-    <div class="add-grid">
-      <label>URL<input type="url" id="add-url" placeholder="https://www.stepstone.de/job/..." required></label>
-      <label>Firma<input type="text" id="add-firma" placeholder="z. B. BMW Group" required></label>
-      <label>Rolle<input type="text" id="add-rolle" placeholder="z. B. AI Product Manager" required></label>
-      <button id="add-btn" onclick="addPostingFromUrl()">+ Ausschreibung hinzufuegen</button>
-    </div>
-    <div id="add-status" class="api-warn" style="display:none;"></div>
-    <div class="add-hint">
-      Server snapshotet die URL (Playwright) und scort sie gegen dein Master-Profil.
-      Dauert ca. 10-15 s. Die Bewerbung erstellt sich erst, wenn du auf der entstehenden
-      Karte unten auf "Bewerbung erstellen" klickst.
-    </div>
-  </details>
-</div>
-
-<div class="add-posting">
-  <details>
-    <summary>+ Mehrere URLs auf einmal verarbeiten (Batch-Scoring)</summary>
-    <label class="field" style="display:block; margin:10px 0 6px 0; font-size:12px; color:#555; font-weight:600;">
-      URLs (eine pro Zeile)
+<div id="add-dialog" class="batch-modal" style="display:none;">
+  <div class="batch-modal-backdrop" onclick="closeAddDialog()"></div>
+  <div class="batch-modal-content" style="width: 560px;">
+    <h2>Ausschreibungen hinzufügen</h2>
+    <label class="field" style="display:block; margin:4px 0 6px 0; font-size:12px; font-weight:600;">
+      URLs — eine pro Zeile
     </label>
-    <textarea id="batch-urls" rows="6" placeholder="https://...&#10;https://...&#10;https://..." style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #ccc; border-radius:4px; font:inherit; font-size:13px; font-family: ui-monospace, 'SF Mono', Menlo, monospace;"></textarea>
-    <div style="margin-top:8px;">
-      <button id="batch-btn" onclick="startBatch()" style="padding:7px 14px; background:#2266cc; color:#fff; border:1px solid #2266cc; border-radius:4px; font-weight:600; cursor:pointer;">▶ Batch starten</button>
-    </div>
+    <textarea id="batch-urls" rows="6" placeholder="https://...&#10;https://...&#10;https://..." style="width:100%; box-sizing:border-box; background: var(--color-bg); border:1px solid var(--color-divider); border-radius: var(--radius-lg); padding:10px 14px; font-size:13px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: var(--color-text);"></textarea>
     <div class="add-hint">
-      Firma + Rolle werden von der LLM aus dem Posting extrahiert - keine manuelle
-      Eingabe noetig. Pro URL ein LLM-Call (~5-10s). Fehlerhafte URLs werden uebersprungen
-      und landen in der "Fehlgeschlagene URLs"-Sektion unten am Dashboard.
+      Mehrere URLs auf einmal verarbeiten (Batch-Scoring): Firma + Rolle werden von der
+      LLM aus dem Posting extrahiert - keine manuelle Eingabe noetig. Pro URL ein
+      LLM-Call (~5-10s). Fehlerhafte URLs landen in der "Fehlgeschlagene URLs"-Sektion.
     </div>
-  </details>
+    <div style="margin-top:14px; display:flex; justify-content:flex-end; gap:8px;">
+      <button class="btn btn-secondary" onclick="closeAddDialog()">Abbrechen</button>
+      <button class="btn btn-primary" id="batch-btn" onclick="startBatch()">▶ Batch starten</button>
+    </div>
+  </div>
 </div>
 
 <div id="batch-modal" class="batch-modal" style="display:none;">
@@ -257,8 +337,7 @@ tr.expanded + tr.detail { display: table-row; }
     <h2>Batch-Lauf <span id="batch-summary" class="muted" style="font-weight:normal; font-size:13px;"></span></h2>
     <div id="batch-rows"></div>
     <div style="margin-top:16px; text-align:right;">
-      <button id="batch-close" onclick="closeBatchModal()" disabled
-              style="padding:8px 16px; border:1px solid #ccc; background:#fff; border-radius:4px; cursor:pointer; font-weight:600;">
+      <button class="btn btn-secondary" id="batch-close" onclick="closeBatchModal()" disabled>
         Schliessen
       </button>
     </div>
@@ -276,28 +355,28 @@ tr.expanded + tr.detail { display: table-row; }
 
 {% if state.failed_urls %}
 <div class="failed-urls-section">
-  <h3>
-    ❗ Fehlgeschlagene URLs ({{ state.failed_urls | length }})
-    <button onclick="clearAllFailed()" style="font-size:11px; padding:3px 10px; border:1px solid #c33; background:#fff; color:#c33; border-radius:3px; cursor:pointer;">Liste leeren</button>
-  </h3>
+  <div style="display:flex; align-items:center; margin-bottom:10px;">
+    <span class="card-kicker" style="color: var(--color-accent-800);">Fehlgeschlagene URLs ({{ state.failed_urls | length }})</span>
+    <button class="btn btn-ghost" onclick="clearAllFailed()" style="font-size:12px; margin-left:auto;">Liste leeren</button>
+  </div>
   {% for f in state.failed_urls %}
   <div class="failed-url-row" data-url="{{ f.url }}">
     <div>
       <div class="url" title="{{ f.url }}">{{ f.url }}</div>
       <div class="err">{{ f.error }}</div>
     </div>
-    <span class="muted" style="font-size:11px;">{{ f.at[:16] }}</span>
-    <button onclick="retryFailed('{{ f.url | replace("'", "\\'") }}', this)" style="background:#2266cc; color:#fff; border:1px solid #2266cc; border-radius:3px; cursor:pointer;">↻ Erneut versuchen</button>
-    <button onclick="removeFailed('{{ f.url | replace("'", "\\'") }}', this)" style="background:#fff; border:1px solid #ccc; border-radius:3px; cursor:pointer;">verwerfen</button>
+    <span class="muted" style="font-size:11px;">{{ f.at[:16] | replace("T", " ") }}</span>
+    <button class="btn btn-secondary" onclick="retryFailed('{{ f.url | replace("'", "\\'") }}', this)" style="font-size:11px; padding:3px 12px;">↻ Erneut versuchen</button>
+    <button class="btn btn-ghost" onclick="removeFailed('{{ f.url | replace("'", "\\'") }}', this)" style="font-size:11px;">verwerfen</button>
   </div>
   {% endfor %}
 </div>
 {% endif %}
 
-<div class="controls">
-  <label>Suche: <input type="search" id="q" placeholder="Firma, Titel, Beschreibung …"></label>
-  <label>Status: <select id="filter-status">
-    <option value="">alle</option>
+<div class="controls" style="align-items:center;">
+  <input type="search" id="q" placeholder="Firma, Titel, Notiz …" style="width:280px;">
+  <select id="filter-status">
+    <option value="">Status: alle</option>
     <option value="discovered">entdeckt</option>
     <option value="shortlisted">vorgemerkt</option>
     <option value="tailored">getailored</option>
@@ -307,48 +386,59 @@ tr.expanded + tr.detail { display: table-row; }
     <option value="rejected">abgelehnt</option>
     <option value="withdrawn">zurueckgezogen</option>
     <option value="declined">abgewaehlt</option>
-  </select></label>
-  <label>Min Score: <select id="filter-score">
-    <option value="0">alle</option>
-    <option value="5">>=5</option>
-    <option value="6" selected>>=6</option>
-    <option value="7">>=7</option>
-    <option value="8">>=8</option>
-  </select></label>
-  <label>Board: <select id="filter-board">
-    <option value="">alle</option>
+  </select>
+  <select id="filter-score">
+    <option value="0">Score: alle</option>
+    <option value="5">Score ≥ 5</option>
+    <option value="6" selected>Score ≥ 6</option>
+    <option value="7">Score ≥ 7</option>
+    <option value="8">Score ≥ 8</option>
+  </select>
+  <select id="filter-board">
+    <option value="">Board: alle</option>
     <option value="arbeitsagentur">arbeitsagentur</option>
     <option value="linkedin">linkedin</option>
     <option value="indeed">indeed</option>
     <option value="manual">manual (tailored)</option>
-  </select></label>
+  </select>
+  <span class="view-toggle" style="margin-left:auto;">
+    <button id="view-table-btn" onclick="setView('table')">Tabelle</button>
+    <button id="view-kanban-btn" onclick="setView('kanban')">Kanban</button>
+    <button id="view-fokus-btn" onclick="setView('fokus')">Fokus</button>
+  </span>
 </div>
 
-<div class="default-design" style="margin:8px 0; font-size:13px;">
-  Standard-Design:
-  <select id="default-set" onchange="saveDefaultSet()"></select>
-  <span id="default-set-status" class="muted"></span>
-</div>
-
-<div class="theme-upload" style="margin:8px 0; font-size:13px;">
-  <b>Eigenes Layout</b>
-  <input type="file" id="theme-file" accept=".pdf,.docx">
-  <button onclick="uploadTheme()">Analysieren</button>
-  <span id="theme-upload-status" class="muted"></span>
-  <div id="theme-preview-wrap" style="display:none; margin-top:8px;">
-    <iframe id="theme-preview" style="width:100%; height:520px; border:1px solid #ccc;"></iframe>
-    <div style="margin-top:6px;">
-      Name: <input type="text" id="theme-name" placeholder="z. B. Mein CV 2026">
-      <button onclick="saveTheme()">Speichern</button>
+<div class="design-card">
+  <div style="display:flex; flex-wrap:wrap; gap: var(--space-3); align-items:center;">
+    <label style="display:inline-flex; align-items:center; gap:8px; font-family: var(--font-heading);">Standard-Design
+      <select id="default-set" onchange="saveDefaultSet()" class="pill-select"></select>
+    </label>
+    <span id="default-set-status" class="muted"></span>
+    <span style="font-family: var(--font-heading); margin-left: var(--space-2);">Eigenes Layout</span>
+    <label class="btn btn-secondary" style="font-size:12px; cursor:pointer;">
+      <input type="file" id="theme-file" accept=".pdf,.docx" onchange="themeFileChanged()" style="display:none;">
+      <span id="theme-file-label">Datei auswählen (PDF/DOCX)</span>
+    </label>
+    <button class="btn btn-primary" id="theme-analyze-btn" onclick="uploadTheme()" disabled style="font-size:12px;">Analysieren</button>
+    <span id="theme-upload-status" class="muted"></span>
+  </div>
+  <div id="theme-preview-wrap" style="display:none; margin-top:10px; width:100%;">
+    <iframe id="theme-preview" style="width:100%; height:520px; border:1px solid var(--color-divider); border-radius: var(--radius-md); background: #fff;"></iframe>
+    <div class="controls" style="margin-top:6px; align-items: center;">
+      <label>Name: <input type="text" id="theme-name" placeholder="z. B. Mein CV 2026"></label>
+      <button class="btn btn-primary" onclick="saveTheme()" style="font-size:12px;">Speichern</button>
     </div>
   </div>
-  <div id="my-themes" style="margin-top:8px;"></div>
+  <div style="margin-top:8px; display:flex; align-items:baseline; gap:10px;">
+    <span class="card-kicker">Meine Layouts</span>
+    <div id="my-themes" style="font-size:13px;"></div>
+  </div>
 </div>
 
 <div id="batch-action-bar" class="batch-action-bar" style="display:none;">
   <span><b id="batch-selected-count">0</b> Jobs ausgewaehlt</span>
-  <button onclick="clearSelection()" style="background:#fff; border:1px solid #ccc; padding:5px 10px; border-radius:3px; cursor:pointer;">↺ Auswahl aufheben</button>
-  <button onclick="openBatchTailorModal()" style="background:#2266cc; color:#fff; border:1px solid #2266cc; padding:5px 14px; border-radius:3px; cursor:pointer; font-weight:600;">📄 Bewerbungen erstellen</button>
+  <button class="btn btn-ghost" onclick="clearSelection()" style="font-size:13px;">↺ Auswahl aufheben</button>
+  <button class="btn btn-primary" onclick="openBatchTailorModal()" style="margin-left:auto;">📄 Bewerbungen erstellen</button>
 </div>
 
 <div id="batch-tailor-params-modal" class="batch-modal" style="display:none;">
@@ -361,30 +451,27 @@ tr.expanded + tr.detail { display: table-row; }
       Bereits getailorde Jobs werden uebersprungen.
     </p>
     <label class="field">
-      <span style="display:block; font-weight:600; margin-bottom:4px;">Starttermin <span style="color:#c33;">*</span></span>
-      <input type="text" id="batch-tailor-start" placeholder="z. B. ab sofort, 2026-08-01" required
-             style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:4px;">
+      <span style="display:block; font-weight:600; margin-bottom:4px;">Starttermin <span style="color: var(--color-accent-800);">*</span></span>
+      <input class="input" type="text" id="batch-tailor-start" placeholder="z. B. ab sofort, 2026-08-01" required>
     </label>
     <label class="field" style="display:block; margin-top:10px;">
       <span style="display:block; font-weight:600; margin-bottom:4px;">Gehaltsvorstellung <span style="color:#888; font-weight:normal;">(optional)</span></span>
-      <input type="text" id="batch-tailor-gehalt" placeholder="z. B. 65.000 EUR brutto/Jahr"
-             style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:4px;">
+      <input class="input" type="text" id="batch-tailor-gehalt" placeholder="z. B. 65.000 EUR brutto/Jahr">
     </label>
     <label class="field" style="display:block; margin-top:10px;">
       <span style="display:block; font-weight:600; margin-bottom:4px;">Sprache</span>
-      <select id="batch-tailor-sprache"
-              style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:4px;">
+      <select class="input" id="batch-tailor-sprache">
         <option value="de" selected>Deutsch</option>
         <option value="en">English</option>
       </select>
     </label>
     <label class="field" style="display:block; margin-top:10px;">
       <span style="display:block; font-weight:600; margin-bottom:4px;">Design</span>
-      <select id="batch-tailor-set" style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:4px;"></select>
+      <select class="input" id="batch-tailor-set"></select>
     </label>
     <div style="margin-top:16px; text-align:right;">
-      <button onclick="closeBatchTailorParamsModal()" style="padding:8px 14px; background:#fff; border:1px solid #ccc; border-radius:4px; cursor:pointer;">Abbrechen</button>
-      <button onclick="startBatchTailor()" style="padding:8px 14px; background:#2266cc; color:#fff; border:1px solid #2266cc; border-radius:4px; cursor:pointer; font-weight:600; margin-left:6px;">▶ Starten</button>
+      <button class="btn btn-secondary" onclick="closeBatchTailorParamsModal()">Abbrechen</button>
+      <button class="btn btn-primary" onclick="startBatchTailor()" style="margin-left:6px;">▶ Starten</button>
     </div>
   </div>
 </div>
@@ -395,19 +482,40 @@ tr.expanded + tr.detail { display: table-row; }
     <h2>Bewerbungen werden erstellt <span id="batch-tailor-summary" class="muted" style="font-weight:normal; font-size:13px;"></span></h2>
     <div id="batch-tailor-rows"></div>
     <div style="margin-top:16px; text-align:right;">
-      <button id="batch-tailor-close" onclick="closeBatchTailorProgressModal()" disabled
-              style="padding:8px 16px; border:1px solid #ccc; background:#fff; border-radius:4px; cursor:pointer; font-weight:600;">
+      <button class="btn btn-secondary" id="batch-tailor-close" onclick="closeBatchTailorProgressModal()" disabled>
         Schliessen
       </button>
     </div>
   </div>
 </div>
 
-<div class="view-toggle" style="margin: 8px 0;">
-  <button id="view-table-btn" onclick="setView('table')">▤ Tabelle</button>
-  <button id="view-kanban-btn" onclick="setView('kanban')">▦ Kanban</button>
-</div>
 <div id="kanban-view"></div>
+<div id="fokus-view"></div>
+
+<div id="account-delete-modal" class="batch-modal" style="display:none;">
+  <div class="batch-modal-backdrop" onclick="closeAccountDeleteModal()"></div>
+  <div class="batch-modal-content" style="width: 480px;">
+    <h2 style="color: var(--color-accent-800);">Account endgültig löschen?</h2>
+    <p style="font-size:14px; margin: 0 0 10px;">
+      Damit wird <b>alles restlos gelöscht</b> — dein Account und der komplette Workspace:
+    </p>
+    <ul style="font-size:13.5px; margin: 0 0 12px; padding-left: 22px; line-height: 1.7;">
+      <li>alle hochgeladenen <b>Dokumente</b> und dein Master-Profil</li>
+      <li>alle erstellten <b>Bewerbungen</b> (Lebensläufe, Anschreiben, PDFs)</li>
+      <li>alle <b>Suchen</b>, gescorten Jobs, Notizen und Status</li>
+      <li>Anlagen-Konfiguration, eigene Layouts und Einstellungen</li>
+      <li>dein <b>Login</b> (Registry-Eintrag)</li>
+    </ul>
+    <p style="font-size:13.5px; font-weight:600; margin: 0 0 14px;">
+      Das kann <span style="color: var(--color-accent-800);">nicht rückgängig</span> gemacht werden.
+    </p>
+    <div id="account-delete-status" class="muted" style="font-size:13px; min-height:18px;"></div>
+    <div style="margin-top:12px; display:flex; justify-content:flex-end; gap:8px;">
+      <button class="btn btn-secondary" onclick="closeAccountDeleteModal()">Abbrechen</button>
+      <button class="btn btn-primary" id="account-delete-confirm-btn" onclick="deleteAccount()" style="background: var(--color-accent-800);">Ja, alles endgültig löschen</button>
+    </div>
+  </div>
+</div>
 
 <div id="card-modal" class="card-modal" style="display:none;">
   <div class="card-modal-backdrop" onclick="closeCardModal()"></div>
@@ -419,15 +527,13 @@ tr.expanded + tr.detail { display: table-row; }
 <table id="jobs-table">
   <thead><tr>
     <th class="select-col"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" title="Sichtbare auswaehlen"></th>
-    <th data-sort="score">Score</th>
-    <th data-sort="status">Status</th>
-    <th data-sort="applied_date">Beworben am</th>
-    <th data-sort="notes">Bemerkung</th>
-    <th data-sort="company">Firma</th>
-    <th data-sort="title">Titel</th>
-    <th data-sort="location">Ort</th>
-    <th data-sort="board">Board</th>
-    <th data-sort="posted_date">Veröff.</th>
+    <th data-sort="score" data-label="Score">Score</th>
+    <th data-sort="status" data-label="Status">Status</th>
+    <th data-sort="company" data-label="Firma">Firma</th>
+    <th data-sort="title" data-label="Titel">Titel</th>
+    <th data-sort="location" data-label="Ort">Ort</th>
+    <th data-sort="board" data-label="Board">Board</th>
+    <th data-sort="applied_date" data-label="Beworben">Beworben</th>
   </tr></thead>
   <tbody id="jobs-tbody"></tbody>
 </table>
@@ -474,11 +580,13 @@ function setView(v) {
   localStorage.setItem("bewerber_view", v);
   const table = document.getElementById("jobs-table");
   const kanban = document.getElementById("kanban-view");
-  const isKanban = v === "kanban";
-  table.style.display = isKanban ? "none" : "";
-  kanban.classList.toggle("active", isKanban);
-  document.getElementById("view-table-btn").classList.toggle("active", !isKanban);
-  document.getElementById("view-kanban-btn").classList.toggle("active", isKanban);
+  const fokus = document.getElementById("fokus-view");
+  table.style.display = v === "table" ? "" : "none";
+  kanban.classList.toggle("active", v === "kanban");
+  fokus.classList.toggle("active", v === "fokus");
+  document.getElementById("view-table-btn").classList.toggle("active", v === "table");
+  document.getElementById("view-kanban-btn").classList.toggle("active", v === "kanban");
+  document.getElementById("view-fokus-btn").classList.toggle("active", v === "fokus");
   applyFilters();
 }
 
@@ -512,8 +620,82 @@ function applyFilters() {
     else { av = a[key] || ""; bv = b[key] || ""; }
     return (av < bv ? -1 : av > bv ? 1 : 0) * currentSort.dir;
   });
+  updateSortHeaders();
   if (currentView === "kanban") renderKanban(rows);
+  else if (currentView === "fokus") renderFokus(rows);
   else renderRows(rows);
+}
+
+function updateSortHeaders() {
+  document.querySelectorAll("th[data-sort]").forEach(th => {
+    const base = th.dataset.label || th.textContent;
+    th.innerHTML = escapeHtml(base) + (
+      th.dataset.sort === currentSort.key
+        ? `<span class="arrow">${currentSort.dir === 1 ? "↑" : "↓"}</span>` : ""
+    );
+  });
+}
+
+// Fokus-View: drei kuratierte Gruppen (Mockup-Semantik "Organic Redesign")
+function renderFokus(rows) {
+  const wrap = document.getElementById("fokus-view");
+  const days = d => d ? Math.max(0, Math.round((Date.now() - new Date(d).getTime()) / 86400000)) : null;
+  const score = r => (r.scoring && r.scoring.fit_score) || 0;
+  const groups = [
+    {
+      title: "Jetzt dran",
+      hint: "Interviews vorbereiten, fertige Bewerbungen abschicken",
+      cards: rows.filter(r => ["interview", "offer", "tailored"].includes(r.status)).map(r => ({
+        r,
+        actionLabel: r.status === "tailored" ? "Abschicken" : "Details öffnen",
+        onClick: r.status === "tailored"
+          ? `changeStatus('${r.jid}', 'applied', event)`
+          : `openCardModal('${r.jid}')`,
+        age: r.status === "tailored" ? "bereit" : "",
+      })),
+    },
+    {
+      title: "Neu & vielversprechend",
+      hint: "Score ≥ 7, noch keine Bewerbung erstellt",
+      cards: rows.filter(r => ["discovered", "shortlisted"].includes(r.status) && score(r) >= 7).map(r => ({
+        r,
+        actionLabel: "Bewerbung erstellen",
+        onClick: `openCardModal('${r.jid}')`,
+        age: r.raw.posted_date ? "entdeckt " + r.raw.posted_date : "",
+      })),
+    },
+    {
+      title: "Warten auf Antwort",
+      hint: "Beworben — Follow-up nach 14 Tagen erwägen",
+      cards: rows.filter(r => r.status === "applied").map(r => {
+        const d = days(appliedDate(r));
+        return {
+          r,
+          actionLabel: "Details öffnen",
+          onClick: `openCardModal('${r.jid}')`,
+          age: d !== null ? `seit ${d} Tagen` : "",
+        };
+      }),
+    },
+  ];
+  wrap.innerHTML = groups.map(g => `
+    <div class="fokus-group">
+      <h3>${g.title}</h3>
+      <div class="fokus-hint">${g.hint}</div>
+      ${g.cards.length === 0 ? '<div class="fokus-empty">Nichts offen — alles erledigt.</div>' : g.cards.map(c => `
+        <div class="fokus-card">
+          <div class="fc-head">
+            <span class="fc-company">${escapeHtml(c.r.raw.company)}</span>
+            <span class="score score-${score(c.r)}">${score(c.r) || "—"}</span>
+            <span class="fc-age">${escapeHtml(c.age)}</span>
+          </div>
+          <div class="fc-title">${escapeHtml(c.r.raw.title)}</div>
+          <div class="fc-foot">
+            <span class="status status-${c.r.status}">${statusLabel(c.r.status)}</span>
+            <button class="action-btn primary" style="margin:0 0 0 auto;" onclick="${c.onClick}">${c.actionLabel}</button>
+          </div>
+        </div>`).join("")}
+    </div>`).join("");
 }
 
 function renderRows(rows) {
@@ -529,25 +711,30 @@ function renderRows(rows) {
                ${alreadyTailored ? 'disabled title="Bereits getailored"' : ''}
                onchange="onRowSelectChange(this)">
       </td>
-      <td class="score score-${score}">${score || "—"}</td>
+      <td><span class="score-badge ${scoreBadgeClass(score)}">${score || "—"}</span></td>
       <td><span class="status status-${r.status}">${statusLabel(r.status)}</span></td>
-      <td>${appliedDate(r) || "—"}</td>
-      <td class="notes-cell">${notesPreview(r.notes)}</td>
-      <td>${escapeHtml(r.raw.company)}</td>
-      <td>${escapeHtml(r.raw.title)}</td>
-      <td>${escapeHtml(r.raw.location)}${arbeitsmodellBadge(r.raw.arbeitsmodell)}</td>
+      <td class="company">${escapeHtml(r.raw.company)}</td>
+      <td>${escapeHtml(r.raw.title)}${arbeitsmodellBadge(r.raw.arbeitsmodell)}</td>
+      <td>${escapeHtml(r.raw.location)}</td>
       <td>${escapeHtml(r.raw.board)}</td>
-      <td>${r.raw.posted_date || "—"}</td>
+      <td>${appliedDate(r) || "—"}</td>
     `;
     tr.addEventListener("click", () => toggleDetail(tr, r));
     tbody.appendChild(tr);
 
     const detail = document.createElement("tr");
     detail.className = "detail";
-    detail.innerHTML = `<td colspan="10">${detailHtml(r)}</td>`;
+    detail.innerHTML = `<td colspan="8">${detailHtml(r)}</td>`;
     detail.style.display = "none";
     tbody.appendChild(detail);
   }
+}
+
+function scoreBadgeClass(score) {
+  if (!score) return "sb-none";
+  if (score >= 7) return "";
+  if (score >= 5) return "sb-mid";
+  return "sb-low";
 }
 
 function renderKanban(rows) {
@@ -604,7 +791,7 @@ function buildKanbanCard(r) {
     <div class="kc-title">${escapeHtml(r.raw.title)}${arbeitsmodellBadge(r.raw.arbeitsmodell)}</div>
     <div class="kc-foot">
       <span class="score score-${score}" style="padding:1px 6px; border-radius:3px;">${score || "—"}</span>
-      <button class="folder-btn" style="border-color:#c33; color:#c33;"
+      <button class="folder-btn" style="border-color: var(--color-accent-400); color: var(--color-accent-800);"
               onclick="deleteJob('${r.jid}', event)">&#x1f5d1;</button>
     </div>`;
   card.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", r.jid));
@@ -639,24 +826,25 @@ function toggleDetail(tr, r) {
 
 function detailHtml(r) {
   const scoring = r.scoring || {};
-  const linkCv = r.tailored_dir ? `<a href="/api/download?job_id=${encodeURIComponent(r.jid)}&file=lebenslauf.pdf">Lebenslauf PDF</a>` : "";
-  const linkAns = r.tailored_dir ? `<a href="/api/download?job_id=${encodeURIComponent(r.jid)}&file=anschreiben.pdf">Anschreiben PDF</a>` : "";
-  const folderBtn = r.tailored_dir
-    ? `<a class="folder-btn" href="/api/download-zip?job_id=${encodeURIComponent(r.jid)}">&#x2b07; Alles als ZIP</a>
-       <button class="folder-btn" onclick="loadJobFiles('${r.jid}', event)">&#x1f4c4; Dateien anzeigen</button>
-       <div class="job-files" id="files-${r.jid}" style="margin-top:6px; font-size:12px;"></div>`
+  const linkCv = r.tailored_dir ? `<a class="detail-link" href="/api/download?job_id=${encodeURIComponent(r.jid)}&file=lebenslauf.pdf">Lebenslauf PDF</a>` : "";
+  const linkAns = r.tailored_dir ? `<a class="detail-link" href="/api/download?job_id=${encodeURIComponent(r.jid)}&file=anschreiben.pdf">Anschreiben PDF</a>` : "";
+  const zipFilesBtns = r.tailored_dir
+    ? `<a class="btn btn-secondary" style="font-size:13px;" href="/api/download-zip?job_id=${encodeURIComponent(r.jid)}">Alles als ZIP</a>
+       <button class="btn btn-secondary" style="font-size:13px;" onclick="loadJobFiles('${r.jid}', event)">Dateien anzeigen</button>`
+    : "";
+  const filesBox = r.tailored_dir
+    ? `<div class="job-files" id="files-${r.jid}" style="margin-top:6px; font-size:12px;"></div>`
     : "";
   // Briefing-Button nur fuer Jobs mit Status 'applied' oder weiter (interview/offer)
   // und nur wenn ein Tailored-Dir existiert (Briefing wird dort abgelegt).
   const showBriefing = r.tailored_dir && ["applied", "interview", "offer"].includes(r.status);
   const briefingBtn = showBriefing
-    ? `<button class="folder-btn" onclick="createBriefing('${r.jid}', event)" id="briefing-btn-${r.jid}">📋 Briefing erstellen</button>
-       <span class="briefing-status" id="briefing-status-${r.jid}" style="margin-left:8px; font-size:12px;"></span>`
+    ? `<button class="btn btn-secondary" style="font-size:13px;" onclick="createBriefing('${r.jid}', event)" id="briefing-btn-${r.jid}">Briefing erstellen</button>
+       <span class="briefing-status" id="briefing-status-${r.jid}" style="font-size:12px;"></span>`
     : "";
-  const deleteBtn = `<button class="folder-btn" style="border-color:#c33; color:#c33;"
-       onclick="deleteJob('${r.jid}', event)">&#x1f5d1; Loeschen</button>`;
-  const linkPost = r.raw.url ? `<a href="${escapeAttr(r.raw.url)}" target="_blank">Original-Posting</a>` : "";
-  const linkApp = r.application_link ? `<a href="${escapeAttr(r.application_link)}" target="_blank">Eingereichte Bewerbung</a>` : "";
+  const deleteBtn = `<button class="link-danger" onclick="deleteJob('${r.jid}', event)">Löschen</button>`;
+  const linkPost = r.raw.url ? `<a class="detail-link" href="${escapeAttr(r.raw.url)}" target="_blank">Original-Posting</a>` : "";
+  const linkApp = r.application_link ? `<a class="detail-link" href="${escapeAttr(r.application_link)}" target="_blank">Eingereichte Bewerbung</a>` : "";
   const isApplied = r.status === "applied" || r.status === "interview" || r.status === "offer";
   const appliedToggle = `<label class="applied-toggle" onclick="event.stopPropagation()">
     <input type="checkbox" id="applied-${r.jid}" ${isApplied ? "checked" : ""}
@@ -667,12 +855,12 @@ function detailHtml(r) {
            value="${escapeAttr(r.application_link || '')}"
            ${isApplied ? '' : 'style="display:none;"'}>
   </label>`;
-  const matchedSk = (scoring.matched_skills || []).map(s => `<code>${escapeHtml(s)}</code>`).join(", ");
-  const missingSk = (scoring.missing_skills || []).map(s => `<code>${escapeHtml(s)}</code>`).join(", ");
-  const flags = (scoring.red_flags || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  const matchedSk = (scoring.matched_skills || []).map(s => `<span class="tag tag-accent-2">${escapeHtml(s)}</span>`).join(" ");
+  const missingSk = (scoring.missing_skills || []).map(s => `<span class="tag tag-missing">${escapeHtml(s)}</span>`).join(" ");
+  const flags = (scoring.red_flags || []).map(s => `<div class="red-flag">⚑ ${escapeHtml(s)}</div>`).join("");
   const desc = buildDescriptionHtml(r.raw.description, r.jid);
   const tailorBtn = r.tailored_dir
-    ? `<span class="muted">&#x2714; Bereits getailored</span>`
+    ? `<span class="muted">✓ Bereits getailored</span>`
     : `<div class="tailor-form" onclick="event.stopPropagation()">
          <label><span class="label-text">Starttermin<span class="req-mark">*</span></span>
            <input type="text" id="start-${r.jid}" placeholder="z. B. ab sofort, 2026-08-01"
@@ -708,28 +896,33 @@ function detailHtml(r) {
   const statusOptions = Object.entries(STATUS_LABELS)
     .map(([v, lbl]) => `<option value="${v}" ${r.status === v ? "selected" : ""}>${lbl}</option>`)
     .join("");
-  const statusSelect = `<label class="status-select-wrap" onclick="event.stopPropagation()">
-    Status:
+  const statusSelect = `<label class="status-select-wrap" onclick="event.stopPropagation()" style="margin-left:0;">
+    Status
     <select onchange="changeStatus('${r.jid}', this.value, event)">${statusOptions}</select>
   </label>`;
   return `
-    <div class="links">${linkPost} ${linkCv} ${linkAns} ${linkApp} ${folderBtn} ${briefingBtn} ${deleteBtn}</div>
-    <div style="margin-top:6px;">${appliedToggle} ${statusSelect}</div>
-    <div style="margin-top:6px;">${tailorBtn}</div>
-    <h4>Scoring</h4>
-    <div><b>Fit:</b> ${scoring.fit_score || "—"} — ${escapeHtml(scoring.begruendung || "")}</div>
-    <div><b>Matched Skills:</b> ${matchedSk || '<span class="muted">—</span>'}</div>
-    <div><b>Missing Skills:</b> ${missingSk || '<span class="muted">—</span>'}</div>
-    ${flags ? `<div><b>Red Flags:</b><ul>${flags}</ul></div>` : ""}
-    <h4>Notizen
-      <button class="notes-save-btn" onclick="saveNotes('${r.jid}', event)">💾 Speichern</button>
-      <span class="notes-status" id="notes-status-${r.jid}"></span>
-    </h4>
-    <textarea class="notes-edit" id="notes-edit-${r.jid}"
-              placeholder="Freitext-Notizen zur Bewerbung (Recruiter-Gespraech, persoenliche Einschaetzung, Reminder, ...)"
-              onclick="event.stopPropagation()">${escapeHtml(r.notes || "")}</textarea>
-    <h4>Beschreibung</h4>
-    <div style="white-space: pre-wrap; font-size: 13px;">${desc}</div>
+    <div class="detail-card">
+      <div class="detail-head">
+        ${linkPost} ${linkCv} ${linkAns} ${linkApp} ${zipFilesBtns} ${briefingBtn}
+        <span class="head-right">${statusSelect} ${deleteBtn}</span>
+      </div>
+      ${filesBox}
+      <div style="margin:10px 0 2px;">${appliedToggle}</div>
+      <div style="margin:2px 0 4px;">${tailorBtn}</div>
+      <div class="detail-kicker">Scoring</div>
+      <div style="font-size:14px;">${escapeHtml(scoring.begruendung || "") || '<span class="muted">—</span>'}</div>
+      <div class="skill-tags">${matchedSk} ${missingSk}</div>
+      ${flags}
+      <div class="detail-kicker">Notizen
+        <button class="btn btn-secondary" style="font-size:12px; text-transform:none; letter-spacing:normal;" onclick="saveNotes('${r.jid}', event)">Speichern</button>
+        <span class="notes-status" id="notes-status-${r.jid}" style="text-transform:none; letter-spacing:normal;"></span>
+      </div>
+      <textarea class="notes-edit" id="notes-edit-${r.jid}"
+                placeholder="Freitext-Notizen (Recruiter-Gespräch, Einschätzung, Reminder …)"
+                onclick="event.stopPropagation()">${escapeHtml(r.notes || "")}</textarea>
+      <div class="detail-kicker">Beschreibung</div>
+      <div style="white-space: pre-wrap; font-size: 13px;">${desc}</div>
+    </div>
   `;
 }
 
@@ -807,13 +1000,10 @@ async function loadMyThemes() {
   const resp = await fetch("/api/themes"); if (!resp.ok) return;
   const d = await resp.json();
   el.innerHTML = "";
-  const label = document.createElement("b");
-  label.textContent = "Meine Layouts:";
-  el.appendChild(label);
   if (!d.themes.length) {
     const none = document.createElement("span");
     none.className = "muted";
-    none.textContent = " keine";
+    none.textContent = "keine";
     el.appendChild(none);
   }
   for (const t of d.themes) {
@@ -912,7 +1102,7 @@ async function createBriefing(jid, evt) {
     btn.disabled = false;
     btn.textContent = "🔁 Neues Briefing";
   } catch (e) {
-    statusEl.style.color = "#c33";
+    statusEl.style.color = "var(--color-accent-800)";
     statusEl.textContent = "✗ " + e.message;
     btn.disabled = false;
     btn.textContent = "📋 Briefing erstellen";
@@ -946,11 +1136,38 @@ async function startDiscoverRun() {
     }
     pollDiscoverStatus(body.job_id);
   } catch (e) {
-    statusEl.style.color = "#c33";
+    statusEl.style.color = "var(--color-accent-800)";
     statusEl.textContent = "✗ " + e.message;
     btn.disabled = false;
-    btn.textContent = "▶ Discover jetzt starten";
+    btn.textContent = "▷ Discover starten";
   }
+}
+
+function setDiscoverCancelVisible(visible) {
+  const cbtn = document.getElementById("discover-cancel-btn");
+  cbtn.style.display = visible ? "" : "none";
+  cbtn.disabled = false;
+}
+
+async function cancelDiscoverRun() {
+  const cbtn = document.getElementById("discover-cancel-btn");
+  cbtn.disabled = true;
+  cbtn.textContent = "⏳ breche ab ...";
+  try {
+    await fetch("/api/discover/cancel", {method: "POST"});
+  } catch (e) {
+    // Poll zeigt den tatsaechlichen Zustand; Button wieder freigeben
+    cbtn.disabled = false;
+    cbtn.textContent = "■ Abbrechen";
+  }
+}
+
+function discoverProgressText(data) {
+  const p = data.progress;
+  if (p && p.total) {
+    return `⏳ ${p.board}: Job ${p.done}/${p.total} gescored (Suche "${p.search}")`;
+  }
+  return `⏳ laeuft (seit ${data.started_at || "?"})`;
 }
 
 async function pollDiscoverStatus(jobId) {
@@ -960,29 +1177,35 @@ async function pollDiscoverStatus(jobId) {
     try {
       const resp = await fetch("/api/discover/status?job_id=" + encodeURIComponent(jobId));
       const data = await resp.json();
-      if (data.status === "running") {
-        statusEl.textContent = `⏳ laeuft (seit ${data.started_at || "?"})`;
+      if (data.status === "running" || data.status === "cancelling") {
+        setDiscoverCancelVisible(data.status === "running");
+        statusEl.textContent = data.status === "cancelling"
+          ? "⏳ breche ab - sichere Teilergebnisse ..."
+          : discoverProgressText(data);
         setTimeout(tick, 3000);
         return;
       }
-      if (data.status === "done") {
+      setDiscoverCancelVisible(false);
+      if (data.status === "done" || data.status === "cancelled") {
+        const prefix = data.status === "cancelled" ? "■ abgebrochen" : "✓ fertig";
         statusEl.style.color = "#1a5b2b";
-        statusEl.textContent = `✓ fertig: ${data.new_jobs} neu, ${data.total_jobs} gesamt. Dashboard wird neu geladen ...`;
+        statusEl.textContent = `${prefix}: ${data.new_jobs} neu, ${data.total_jobs} gesamt. Dashboard wird neu geladen ...`;
         setTimeout(() => window.location.reload(), 1500);
         return;
       }
       if (data.status === "failed") {
-        statusEl.style.color = "#c33";
+        statusEl.style.color = "var(--color-accent-800)";
         statusEl.textContent = "✗ " + (data.error || "Fehler");
         btn.disabled = false;
-        btn.textContent = "▶ Discover jetzt starten";
+        btn.textContent = "▷ Discover starten";
         return;
       }
     } catch (e) {
-      statusEl.style.color = "#c33";
+      statusEl.style.color = "var(--color-accent-800)";
       statusEl.textContent = "Polling-Fehler: " + e.message;
+      setDiscoverCancelVisible(false);
       btn.disabled = false;
-      btn.textContent = "▶ Discover jetzt starten";
+      btn.textContent = "▷ Discover starten";
     }
   };
   tick();
@@ -1001,6 +1224,53 @@ async function loadJobFiles(jid, evt) {
       `<a href="/api/download?job_id=${encodeURIComponent(jid)}&file=${encodeURIComponent(f.name)}">${f.name}</a> <span class="muted">(${Math.round(f.size/1024)} KB)</span>`
     ).join("<br>");
   } catch (e) { box.textContent = "Netzfehler: " + e.message; }
+}
+
+function toggleUserMenu(evt) {
+  if (evt) evt.stopPropagation();
+  const menu = document.getElementById("user-menu");
+  menu.style.display = menu.style.display === "none" ? "" : "none";
+}
+document.addEventListener("click", (e) => {
+  const menu = document.getElementById("user-menu");
+  if (menu && menu.style.display !== "none" && !e.target.closest(".user-chip")) {
+    menu.style.display = "none";
+  }
+});
+
+function openAccountDeleteModal(evt) {
+  if (evt) evt.preventDefault();
+  toggleUserMenu();
+  document.getElementById("account-delete-status").textContent = "";
+  const btn = document.getElementById("account-delete-confirm-btn");
+  btn.disabled = false;
+  btn.textContent = "Ja, alles endgültig löschen";
+  document.getElementById("account-delete-modal").style.display = "";
+}
+function closeAccountDeleteModal() {
+  document.getElementById("account-delete-modal").style.display = "none";
+}
+async function deleteAccount() {
+  const btn = document.getElementById("account-delete-confirm-btn");
+  const statusEl = document.getElementById("account-delete-status");
+  btn.disabled = true;
+  btn.textContent = "⏳ lösche alles ...";
+  try {
+    const resp = await fetch("/api/account/delete", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({confirm: true}),
+    });
+    const body = await resp.json();
+    if (!resp.ok) throw new Error(body.error || "Löschen fehlgeschlagen");
+    statusEl.textContent = "✓ Account gelöscht. Weiterleitung zum Login ...";
+    setTimeout(() => { window.location.href = body.redirect || "/login"; }, 900);
+  } catch (e) {
+    statusEl.style.color = "var(--color-accent-800)";
+    statusEl.textContent = "✗ " + e.message;
+    btn.disabled = false;
+    btn.textContent = "Ja, alles endgültig löschen";
+  }
 }
 
 async function logoutFromDashboard(evt) {
@@ -1118,7 +1388,7 @@ async function saveNotes(jid, evt) {
     setTimeout(() => { statusEl.textContent = ""; }, 2500);
     applyFilters();  // Spalten-Vorschau neu rendern
   } catch (e) {
-    statusEl.style.color = "#c33";
+    statusEl.style.color = "var(--color-accent-800)";
     statusEl.textContent = "✗ " + e.message;
   }
 }
@@ -1263,7 +1533,7 @@ async function createBewerbung(jid, evt) {
     setTimeout(() => window.location.reload(), 1200);
   } catch (e) {
     clearInterval(ticker);
-    statusEl.style.color = "#c33";
+    statusEl.style.color = "var(--color-accent-800)";
     statusEl.textContent = "✗ Fehlgeschlagen: " + e.message;
     btn.disabled = false;
     btn.textContent = "📄 Bewerbung erstellen";
@@ -1439,6 +1709,27 @@ function closeBatchTailorProgressModal() {
 // Batch-Add: streamt NDJSON-Events vom Server pro URL
 // ---------------------------------------------------------------------------
 
+function openAddDialog() {
+  document.getElementById("add-dialog").style.display = "";
+  document.getElementById("batch-urls").focus();
+}
+function closeAddDialog() {
+  document.getElementById("add-dialog").style.display = "none";
+}
+
+function themeFileChanged() {
+  const input = document.getElementById("theme-file");
+  const label = document.getElementById("theme-file-label");
+  const btn = document.getElementById("theme-analyze-btn");
+  if (input.files.length) {
+    label.textContent = input.files[0].name;
+    btn.disabled = false;
+  } else {
+    label.textContent = "Datei auswählen (PDF/DOCX)";
+    btn.disabled = true;
+  }
+}
+
 async function startBatch() {
   if (!IS_HTTP) {
     alert("Batch-Lauf funktioniert nur ueber 'bewerber serve' (HTTP).");
@@ -1450,6 +1741,7 @@ async function startBatch() {
     alert("Bitte mindestens eine URL eingeben (pro Zeile).");
     return;
   }
+  closeAddDialog();
   // Modal aufbauen
   const modal = document.getElementById("batch-modal");
   const rowsEl = document.getElementById("batch-rows");
@@ -1622,50 +1914,6 @@ async function clearAllFailed() {
     window.location.reload();
   } catch (e) {
     alert("Fehler: " + e.message);
-  }
-}
-
-async function addPostingFromUrl() {
-  const urlEl = document.getElementById("add-url");
-  const firmaEl = document.getElementById("add-firma");
-  const rolleEl = document.getElementById("add-rolle");
-  const btn = document.getElementById("add-btn");
-  const statusEl = document.getElementById("add-status");
-  const url = urlEl.value.trim();
-  const firma = firmaEl.value.trim();
-  const rolle = rolleEl.value.trim();
-  if (!url || !firma || !rolle) {
-    statusEl.style.color = "#c33";
-    statusEl.textContent = "URL, Firma und Rolle sind erforderlich.";
-    statusEl.style.display = "block";
-    return;
-  }
-  if (!IS_HTTP) {
-    alert("Manuelles Hinzufuegen funktioniert nur via 'bewerber serve' (HTTP).");
-    return;
-  }
-  btn.disabled = true;
-  btn.textContent = "⏳ scrapt + scort ...";
-  statusEl.style.color = "#444";
-  statusEl.textContent = "Snapshot + Scoring laufen ... ca. 10-15s";
-  statusEl.style.display = "block";
-
-  try {
-    const resp = await fetch("/api/add-posting", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({url, firma, rolle}),
-    });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || "unbekannter Fehler");
-    statusEl.style.color = "#1a5b2b";
-    statusEl.textContent = `✓ Hinzugefuegt (Fit-Score ${data.fit_score}). Dashboard wird neu geladen ...`;
-    setTimeout(() => window.location.reload(), 1200);
-  } catch (e) {
-    statusEl.style.color = "#c33";
-    statusEl.textContent = "✗ " + e.message;
-    btn.disabled = false;
-    btn.textContent = "+ Ausschreibung hinzufuegen";
   }
 }
 

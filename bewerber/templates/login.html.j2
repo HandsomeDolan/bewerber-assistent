@@ -3,82 +3,87 @@
 <head>
 <meta charset="utf-8">
 <title>Login - Bewerber-Assistent</title>
+{% include "_organic_ds.html.j2" %}
 <style>
   body {
-    font-family: "Helvetica Neue", Arial, sans-serif;
-    margin: 0; padding: 0; background: #f7f8fa; color: #222;
-    display: flex; align-items: center; justify-content: center; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: var(--space-4);
   }
-  .card {
-    background: #fff; border: 1px solid #e0e0e0; border-radius: 6px;
-    padding: 32px 36px; width: 360px; max-width: 92vw;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  .login-card { width: 380px; max-width: 92vw; padding: var(--space-8) var(--space-6); }
+  .login-head {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 12px; margin-bottom: var(--space-2);
   }
-  h1 { margin: 0 0 4px 0; font-size: 22px; }
-  .subtitle { color: #666; font-size: 13px; margin: 0 0 22px 0; }
-  label { display: block; font-size: 12px; color: #444; margin: 10px 0; font-weight: 600; }
-  label input {
-    display: block; width: 100%; box-sizing: border-box;
-    padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
-    font: inherit; font-size: 14px; margin-top: 4px;
+  .login-mark {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: var(--color-accent); color: var(--color-bg);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-heading); font-size: 28px;
   }
-  label input:focus { outline: none; border-color: #2266cc; }
-  button {
-    width: 100%; margin-top: 16px;
-    padding: 10px 16px; background: #2266cc; color: #fff;
-    border: 1px solid #2266cc; border-radius: 4px;
-    font: inherit; font-weight: 600; font-size: 14px;
-    cursor: pointer;
-  }
-  button:hover { background: #1a55b3; }
+  .name-row { display: flex; gap: var(--space-3); }
+  .name-row .field { flex: 1; }
+  .toggle { text-align: center; font-size: 13px; margin: var(--space-2) 0 0; }
   #error {
-    display: none;
-    background: #fde9e9; color: #8a1a1a; border: 1px solid #f3b0b0;
-    padding: 8px 12px; border-radius: 4px; font-size: 13px; margin-top: 12px;
+    display: none; margin: 0;
+    background: var(--color-accent-100); color: var(--color-accent-800);
+    border-radius: 999px; padding: 8px 16px; font-size: 13px; text-align: center;
   }
-  .hint { color: #888; font-size: 11px; margin-top: 18px; line-height: 1.5; }
-  .toggle { font-size: 12px; margin-top: 14px; text-align: center; }
-  .toggle a { color: #2266cc; text-decoration: none; }
-  #success { background: #e7f6e7; color: #1a6a1a; border: 1px solid #aadaaa;
-             padding: 8px 12px; border-radius: 4px; font-size: 13px; margin-top: 12px; }
+  #success {
+    display: none; margin: 0;
+    background: var(--color-accent-2-100); color: var(--color-accent-2-800);
+    border-radius: 999px; padding: 8px 16px; font-size: 13px; text-align: center;
+  }
+  .hint { margin: var(--space-2) 0 0; font-size: 11.5px; text-align: center; line-height: 1.5; }
+  .field { margin-bottom: var(--space-2); }
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>Bewerber-Assistent</h1>
-  <p class="subtitle" id="subtitle">Bitte einloggen.</p>
+<div class="card elev-md login-card">
+  <div class="login-head">
+    <span class="login-mark">b</span>
+    <h2 style="margin: 0; font-size: 26px;">Bewerber-Assistent</h2>
+    <p class="text-muted" id="subtitle" style="margin: 0; font-size: 14px;">Bitte einloggen.</p>
+  </div>
 
   <div id="login-form">
-    <label>Username
-      <input type="text" id="login-username" autocomplete="username" autofocus required>
-    </label>
-    <label>Passwort
-      <input type="password" id="login-passwort" autocomplete="current-password" required>
-    </label>
-    <button id="login-btn" onclick="doLogin()">Einloggen</button>
+    <div class="field">
+      <label>Username</label>
+      <input class="input" type="text" id="login-username" autocomplete="username" autofocus required>
+    </div>
+    <div class="field">
+      <label>Passwort</label>
+      <input class="input" type="password" id="login-passwort" autocomplete="current-password" required>
+    </div>
+    <button class="btn btn-primary btn-block" id="login-btn" onclick="doLogin()">Einloggen</button>
     <p class="toggle">Noch kein Konto? <a href="#" onclick="showRegister(); return false;">Registrieren</a></p>
   </div>
 
   <div id="register-form" style="display:none;">
-    <label>Vorname
-      <input type="text" id="reg-vorname" autocomplete="given-name" required>
-    </label>
-    <label>Nachname
-      <input type="text" id="reg-nachname" autocomplete="family-name" required>
-    </label>
-    <label>Passwort (min. 8 Zeichen)
-      <input type="password" id="reg-passwort" autocomplete="new-password" required>
-    </label>
-    <label>Einladungs-Code
-      <input type="text" id="reg-invite" required>
-    </label>
-    <button id="reg-btn" onclick="doRegister()">Konto anlegen</button>
+    <div class="name-row">
+      <div class="field">
+        <label>Vorname</label>
+        <input class="input" type="text" id="reg-vorname" autocomplete="given-name" required>
+      </div>
+      <div class="field">
+        <label>Nachname</label>
+        <input class="input" type="text" id="reg-nachname" autocomplete="family-name" required>
+      </div>
+    </div>
+    <div class="field">
+      <label>Passwort (min. 8 Zeichen)</label>
+      <input class="input" type="password" id="reg-passwort" autocomplete="new-password" required>
+    </div>
+    <div class="field">
+      <label>Einladungs-Code</label>
+      <input class="input" type="text" id="reg-invite" required>
+    </div>
+    <button class="btn btn-primary btn-block" id="reg-btn" onclick="doRegister()">Konto anlegen</button>
     <p class="toggle">Schon ein Konto? <a href="#" onclick="showLogin(); return false;">Einloggen</a></p>
   </div>
 
   <div id="error"></div>
-  <div id="success" style="display:none;"></div>
-  <p class="hint">Login gilt 30 Tage (Cookie). Registrierung nur mit Einladungs-Code.</p>
+  <div id="success"></div>
+  <p class="hint text-muted">Login gilt 30 Tage (Cookie). Registrierung nur mit Einladungs-Code.</p>
 </div>
 <script>
 function showError(msg) {
