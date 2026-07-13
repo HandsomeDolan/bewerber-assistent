@@ -72,6 +72,16 @@ def register_user(path: Path, vorname: str, nachname: str, password: str) -> str
     return username
 
 
+def delete_user(path: Path, username: str) -> bool:
+    """Entfernt den User aus der Registry. True, wenn er existierte."""
+    registry = load_registry(path)
+    if username not in registry:
+        return False
+    del registry[username]
+    save_registry(path, registry)
+    return True
+
+
 def authenticate(path: Path, username: str, password: str) -> bool:
     registry = load_registry(path)
     entry = registry.get(username)

@@ -89,3 +89,19 @@ def test_ensure_env_value_appends_and_is_stable(tmp_path):
     v2 = auth.ensure_env_value(env_path, "BEWERBER_SECRET_KEY", gen)
     assert v2 == "generated1"
     assert counter["n"] == 1
+
+
+def test_delete_user_removes_registry_entry(tmp_path):
+    reg = tmp_path / "registry.json"
+    username = auth.register_user(reg, "Max", "Muster", "geheim123")
+    assert auth.authenticate(reg, username, "geheim123")
+
+    assert auth.delete_user(reg, username) is True
+    assert username not in auth.load_registry(reg)
+    assert not auth.authenticate(reg, username, "geheim123")
+
+
+def test_delete_user_unknown_returns_false(tmp_path):
+    reg = tmp_path / "registry.json"
+    auth.register_user(reg, "Max", "Muster", "geheim123")
+    assert auth.delete_user(reg, "gibtsnicht") is False

@@ -9,9 +9,6 @@ Endpoints:
     GET  /api/anlagen       -> current anlagen.yaml as JSON
     POST /api/anlagen       -> validate (AnlagenConfig) + atomically rewrite anlagen.yaml
     POST /api/anlagen/verify -> body {paths: [...]} -> returns {missing: [...]}
-    POST /api/add-posting   -> body {url, firma, rolle} -> Playwright-Snapshot +
-                               Score gegen master_profile + upsert in state.json.
-                               Synchron, ~10-15s. Returns {ok, job_id, fit_score}.
     POST /api/batch-add-postings -> body {urls: [str, ...]}. Verarbeitet jede URL
                                sequenziell (snapshot + LLM-Call der Firma+Rolle
                                extrahiert UND scort). Streamt NDJSON-Events
@@ -115,7 +112,7 @@ _theme_lock = threading.Lock()
 
 # Background-State fuer den manuellen Discover-Run vom Dashboard aus.
 # Nur EIN Discover-Job zur Zeit (current_id). Wenn None: kein Lauf aktiv.
-_discover_state: dict = {"current_id": None, "jobs": {}}
+_discover_state: dict = {"current_id": None, "jobs": {}, "cancel_event": None}
 _discover_lock = threading.Lock()
 
 log = logging.getLogger(__name__)
@@ -167,8 +164,14 @@ def _parse_multipart(headers, body: bytes) -> dict[str, list[tuple[bytes, Option
     return out
 
 
-def _run_discover_background(job_id: str, paths: Paths) -> None:
-    """Background-Worker fuer den manuellen Discover-Lauf."""
+def _run_discover_background(
+    job_id: str, paths: Paths, cancel_event: threading.Event | None = None,
+) -> None:
+    """Background-Worker fuer den manuellen Discover-Lauf.
+
+    progress -> Status-Dict (UI-Polling), checkpoint -> save_state nach jedem
+    Board (Restart-sicher), cancel_event -> Abbruch via /api/discover/cancel.
+    """
     started = datetime.now().isoformat(timespec="seconds")
     try:
         from bewerber.discovery.searches import load_searches
@@ -190,20 +193,35 @@ def _run_discover_background(job_id: str, paths: Paths) -> None:
         state = load_state(paths.state_json)
         jobs_before = len(state.jobs)
         llm = LLMClient.for_scoring()
-        discover(config, state=state, master_yaml_text=master_yaml_text, llm=llm)
+
+        def _progress(p: dict) -> None:
+            with _discover_lock:
+                job = _discover_state["jobs"].get(job_id)
+                if job is not None:
+                    job["progress"] = p
+
+        discover(
+            config, state=state, master_yaml_text=master_yaml_text, llm=llm,
+            progress=_progress,
+            checkpoint=lambda st: save_state(paths.state_json, st),
+            cancel=cancel_event,
+        )
         save_state(paths.state_json, state)
         jobs_after = len(state.jobs)
 
+        cancelled = cancel_event is not None and cancel_event.is_set()
         with _discover_lock:
-            _discover_state["jobs"][job_id] = {
-                "status": "done",
+            job = _discover_state["jobs"].setdefault(job_id, {})
+            job.update({
+                "status": "cancelled" if cancelled else "done",
                 "started_at": started,
                 "finished_at": datetime.now().isoformat(timespec="seconds"),
                 "new_jobs": jobs_after - jobs_before,
                 "total_jobs": jobs_after,
                 "scrape_errors": {b: e.last_error for b, e in state.scrape_errors.items()},
-            }
+            })
             _discover_state["current_id"] = None
+            _discover_state["cancel_event"] = None
     except Exception as e:  # noqa: BLE001 - background, log + report
         log.exception("[discover] %s failed", job_id)
         with _discover_lock:
@@ -214,6 +232,7 @@ def _run_discover_background(job_id: str, paths: Paths) -> None:
                 "error": str(e)[:500],
             }
             _discover_state["current_id"] = None
+            _discover_state["cancel_event"] = None
 
 
 def _run_onboarding_extraction(job_id: str, upload_dir: Path, paths: Paths) -> None:
@@ -374,7 +393,14 @@ class _Handler(BaseHTTPRequestHandler):
         if morsel is None:
             return None
         value = urllib.parse.unquote(morsel.value).strip()
-        return auth.verify_session(value, secret)
+        username = auth.verify_session(value, secret)
+        if username is None:
+            return None
+        # Signatur allein reicht nicht: geloeschte Accounts (oder Alt-Cookies
+        # nach Registry-Reset) duerfen keine gueltige Session mehr haben.
+        if username not in auth.load_registry(_registry_path()):
+            return None
+        return username
 
     def _set_session_cookie_header(self, username: str) -> None:
         """Set-Cookie mit signierter Session. VOR end_headers() rufen."""
@@ -534,8 +560,6 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_verify_anlagen()
             elif self.path == "/api/anlagen/upload":
                 self._handle_anlagen_upload()
-            elif self.path == "/api/add-posting":
-                self._handle_add_posting()
             elif self.path == "/api/tailor":
                 self._handle_tailor()
             elif self.path == "/api/notes-set":
@@ -574,6 +598,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_briefing()
             elif self.path == "/api/discover/run":
                 self._handle_discover_run()
+            elif self.path == "/api/discover/cancel":
+                self._handle_discover_cancel()
+            elif self.path == "/api/account/delete":
+                self._handle_account_delete()
             elif self.path == "/api/settings/default-template":
                 self._handle_set_default_template()
             elif self.path == "/api/keywords/generate":
@@ -670,87 +698,6 @@ class _Handler(BaseHTTPRequestHandler):
             (anlagen_dir / safe).write_bytes(content)
             saved.append(f"anlagen/{safe}")
         self._send_json(200, {"ok": True, "saved": saved})
-
-    def _handle_add_posting(self) -> None:
-        """Manually add a job via URL: snapshot + score + upsert to state."""
-        body = self._read_json()
-        url = (body.get("url") or "").strip()
-        firma = (body.get("firma") or "").strip()
-        rolle = (body.get("rolle") or "").strip()
-        if not url or not firma or not rolle:
-            self._send_json(400, {"error": "url, firma und rolle sind erforderlich"})
-            return
-
-        state = load_state(self.paths.state_json)
-        for jid, job in state.jobs.items():
-            if job.raw.url == url:
-                self._send_json(
-                    409,
-                    {"error": f"URL bereits erfasst als Job {jid!r}"},
-                )
-                return
-
-        if not self.paths.master_profile.is_file():
-            self._send_json(
-                500,
-                {"error": f"master_profile.yaml fehlt unter {self.paths.master_profile}"},
-            )
-            return
-
-        # Lazy imports - snapshot pulls in Playwright (heavy)
-        from bewerber.tailoring.snapshot import snapshot_url
-        from bewerber.discovery.enrich import enrich_job
-        from bewerber.discovery.scoring import score_job
-        from bewerber.shared.llm import LLMClient
-        from bewerber.shared.state import upsert_job
-        from bewerber.shared.state_schema import RawJob, TrackedJob
-        import hashlib
-        import tempfile
-
-        snap_dir = Path(tempfile.mkdtemp(prefix="bewerber-manual-"))
-        try:
-            posting_text = snapshot_url(url, snap_dir)
-        except Exception as e:  # noqa: BLE001
-            self._send_json(502, {"error": f"Snapshot fehlgeschlagen: {e}"})
-            return
-
-        external_id = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
-        job_id = f"manual-{external_id}"
-
-        from bewerber.discovery.enrich import extract_arbeitsmodell
-        raw = RawJob(
-            board="manual",
-            external_id=external_id,
-            url=url,
-            title=rolle,
-            company=firma,
-            location="",
-            description=posting_text,
-            arbeitsmodell=extract_arbeitsmodell(posting_text),
-        )
-        enriched = enrich_job(raw)
-
-        master_yaml_text = self.paths.master_profile.read_text(encoding="utf-8")
-        llm = LLMClient.for_scoring()
-        try:
-            scoring = score_job(job=enriched, master_yaml_text=master_yaml_text, llm=llm)
-        except Exception as e:  # noqa: BLE001
-            self._send_json(502, {"error": f"Scoring fehlgeschlagen: {e}"})
-            return
-
-        tracked = TrackedJob(
-            raw=enriched,
-            scoring=scoring,
-            first_seen=_now_iso(),
-        )
-        upsert_job(state, tracked)
-        save_state(self.paths.state_json, state)
-
-        self._send_json(200, {
-            "ok": True,
-            "job_id": job_id,
-            "fit_score": scoring.fit_score,
-        })
 
     def _handle_tailor(self) -> None:
         """Synchronously run the tailor pipeline for an existing job."""
@@ -1236,16 +1183,35 @@ class _Handler(BaseHTTPRequestHandler):
                 })
                 return
             job_id = str(uuid.uuid4())
+            cancel_event = threading.Event()
             _discover_state["jobs"][job_id] = {
                 "status": "running",
                 "started_at": _now_iso(),
             }
             _discover_state["current_id"] = job_id
+            _discover_state["cancel_event"] = cancel_event
         threading.Thread(
             target=_run_discover_background,
-            args=(job_id, self.paths),
+            args=(job_id, self.paths, cancel_event),
             daemon=True,
         ).start()
+        self._send_json(200, {"ok": True, "job_id": job_id})
+
+    def _handle_discover_cancel(self) -> None:
+        """Bricht den laufenden Discover-Run ab (Stopp vor dem naechsten Job)."""
+        if not self._session_user():
+            self._send_json(401, {"error": "Login erforderlich"})
+            return
+        with _discover_lock:
+            job_id = _discover_state["current_id"]
+            cancel_event = _discover_state.get("cancel_event")
+            if job_id is None or cancel_event is None:
+                self._send_json(409, {"error": "Kein laufender Discover-Run"})
+                return
+            cancel_event.set()
+            job = _discover_state["jobs"].get(job_id)
+            if job is not None:
+                job["status"] = "cancelling"
         self._send_json(200, {"ok": True, "job_id": job_id})
 
     def _handle_discover_status(self) -> None:
@@ -1472,6 +1438,40 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
         self._set_session_cookie_header(username)
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _handle_account_delete(self) -> None:
+        """Loescht den eigenen Account RESTLOS: kompletter User-Workspace
+        (Dokumente, Bewerbungen, Suchen, Profil, Themes, State) + Registry-
+        Eintrag. Erfordert explizite Bestaetigung im Body ({"confirm": true})."""
+        username = self._require_session()
+        if not username:
+            return
+        body = self._read_json()
+        if body.get("confirm") is not True:
+            self._send_json(400, {
+                "error": "Bestaetigung fehlt: confirm=true erforderlich",
+            })
+            return
+
+        user_dir = Paths(user=username).data_dir
+        users_root = Paths().users_dir
+        # Sicherheitsgurt: nur echte User-Unterordner loeschen
+        if user_dir.resolve().parent != users_root.resolve():
+            self._send_json(500, {"error": "Unerwarteter Workspace-Pfad - Abbruch"})
+            return
+        if user_dir.is_dir():
+            shutil.rmtree(user_dir)
+        auth.delete_user(_registry_path(), username)
+        log.info("[account] %s hat den eigenen Account geloescht", username)
+
+        payload = json.dumps({"ok": True, "redirect": "/login"}, ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self._clear_session_cookie_header()
         self.end_headers()
         self.wfile.write(payload)
 

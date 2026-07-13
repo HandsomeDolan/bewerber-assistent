@@ -377,85 +377,6 @@ def test_get_anlagen_html_page_renders(running_server):
 
 
 # ---------------------------------------------------------------------------
-# Manual add-posting endpoint
-# ---------------------------------------------------------------------------
-
-def test_add_posting_missing_fields_returns_400(running_server):
-    code, body = _post_json(running_server, "/api/add-posting", {"url": "https://x"})
-    assert code == 400
-    assert "erforderlich" in body["error"]
-
-
-def test_add_posting_without_master_profile_returns_500(running_server, tmp_path):
-    """Fixture seeds a job at https://x already; use a fresh URL here.
-    Fixture seeded master_profile.yaml fuer das Routing - hier loeschen,
-    damit der Endpoint die fehlende Master-Profile-Pruefung trifft."""
-    Paths(TEST_USER).master_profile.unlink()
-    code, body = _post_json(running_server, "/api/add-posting", {
-        "url": "https://fresh.example/job", "firma": "F", "rolle": "R",
-    })
-    assert code == 500
-    assert "master_profile" in body["error"]
-
-
-def test_add_posting_duplicate_url_returns_409(running_server, tmp_path):
-    """Existing job with the same URL -> 409, no scrape happens."""
-    # Seed an existing job
-    state = BewerberState(jobs={
-        "arbeitsagentur-x1": TrackedJob(raw=RawJob(
-            board="arbeitsagentur", external_id="x1",
-            url="https://dup.example/job", title="t", company="c", location="",
-        )),
-    })
-    save_state(Paths(TEST_USER).state_json, state)
-
-    code, body = _post_json(running_server, "/api/add-posting", {
-        "url": "https://dup.example/job", "firma": "X", "rolle": "Y",
-    })
-    assert code == 409
-    assert "bereits erfasst" in body["error"]
-
-
-def test_add_posting_happy_path(running_server, tmp_path, mocker):
-    """Snapshot + Scoring mocked -> state has the new manual job."""
-    # Master profile already seeded by fixture in user dir
-
-
-    # Mock heavy dependencies
-    mocker.patch(
-        "bewerber.tailoring.snapshot.snapshot_url",
-        return_value="Job description text from URL.",
-    )
-    from bewerber.shared.state_schema import Scoring as _Scoring
-    mocker.patch(
-        "bewerber.discovery.scoring.score_job",
-        return_value=_Scoring(
-            fit_score=8, begruendung="passt", matched_skills=["Python"],
-            missing_skills=[], red_flags=[], verbessern_in_anschreiben=[],
-        ),
-    )
-    mocker.patch("bewerber.shared.llm.LLMClient.for_scoring", return_value=mocker.Mock())
-
-    code, body = _post_json(running_server, "/api/add-posting", {
-        "url": "https://stepstone.de/job/12345",
-        "firma": "BMW Group",
-        "rolle": "AI Product Manager",
-    })
-    assert code == 200, body
-    assert body["ok"] is True
-    assert body["fit_score"] == 8
-    assert body["job_id"].startswith("manual-")
-
-    # State has the new job
-    state = load_state(Paths(TEST_USER).state_json)
-    assert body["job_id"] in state.jobs
-    job = state.jobs[body["job_id"]]
-    assert job.raw.company == "BMW Group"
-    assert job.raw.title == "AI Product Manager"
-    assert job.scoring.fit_score == 8
-
-
-# ---------------------------------------------------------------------------
 # Server-side tailor endpoint
 # ---------------------------------------------------------------------------
 
@@ -2100,3 +2021,144 @@ def test_generate_keywords_empty_input_returns_400(running_server, mocker):
     )
     assert code == 400
     assert "error" in body
+
+
+# ---------------------------------------------------------------------------
+# Discover: Cancel-Endpoint + Progress-Wiring (Incident 2026-07-13)
+# ---------------------------------------------------------------------------
+
+def test_discover_cancel_sets_event_and_returns_ok(running_server):
+    import threading as _th
+    from bewerber.dashboard import server as srv
+    ev = _th.Event()
+    with srv._discover_lock:
+        srv._discover_state["current_id"] = "run-1"
+        srv._discover_state["jobs"]["run-1"] = {"status": "running"}
+        srv._discover_state["cancel_event"] = ev
+    try:
+        code, body = _post_json(running_server, "/api/discover/cancel", {})
+        assert code == 200
+        assert body["ok"] is True
+        assert ev.is_set()
+    finally:
+        with srv._discover_lock:
+            srv._discover_state["current_id"] = None
+            srv._discover_state["cancel_event"] = None
+
+
+def test_discover_cancel_without_running_job_returns_409(running_server):
+    from bewerber.dashboard import server as srv
+    with srv._discover_lock:
+        srv._discover_state["current_id"] = None
+    code, body = _post_json(running_server, "/api/discover/cancel", {})
+    assert code == 409
+    assert "error" in body
+
+
+def test_discover_cancel_requires_session(running_server):
+    code, _ = _post_json(
+        running_server, "/api/discover/cancel", {}, with_session=False,
+    )
+    assert code == 401
+
+
+def test_run_discover_background_wires_progress_checkpoint_cancel(
+    running_server, mocker,
+):
+    """Worker muss progress -> Status-Dict, checkpoint -> save_state und
+    cancel -> Status 'cancelled' verdrahten."""
+    import threading as _th
+    from bewerber.dashboard import server as srv
+
+    up = Paths(user=TEST_USER)
+    up.searches_yaml.write_text(
+        "defaults: {locations: [L], date_posted_max_days: 14, exclude_keywords: []}\n"
+        "searches: [{name: A, keywords: [KI], boards: [arbeitsagentur]}]\n",
+    )
+
+    def fake_discover(config, *, state, master_yaml_text, llm,
+                      progress=None, checkpoint=None, cancel=None):
+        progress({"search": "A", "board": "arbeitsagentur", "done": 1, "total": 3})
+        checkpoint(state)
+        cancel.set()  # simuliert: Nutzer hat waehrend des Laufs abgebrochen
+        return state
+
+    mocker.patch("bewerber.discovery.orchestrator.discover", side_effect=fake_discover)
+    save = mocker.patch("bewerber.dashboard.server.save_state")
+
+    ev = _th.Event()
+    with srv._discover_lock:
+        srv._discover_state["jobs"]["run-w"] = {"status": "running"}
+        srv._discover_state["current_id"] = "run-w"
+        srv._discover_state["cancel_event"] = ev
+
+    srv._run_discover_background("run-w", up, ev)
+
+    with srv._discover_lock:
+        job = dict(srv._discover_state["jobs"]["run-w"])
+        current = srv._discover_state["current_id"]
+    assert current is None
+    assert job["status"] == "cancelled"
+    assert job["progress"] == {
+        "search": "A", "board": "arbeitsagentur", "done": 1, "total": 3,
+    }
+    # checkpoint + finaler Save
+    assert save.call_count >= 2
+
+
+def test_add_posting_endpoint_removed_returns_404(running_server):
+    """/api/add-posting wurde entfernt (Batch-Endpoint deckt Einzel-URLs ab)."""
+    code, _ = _post_json(running_server, "/api/add-posting", {
+        "url": "https://x", "firma": "F", "rolle": "R",
+    })
+    assert code == 404
+
+
+# ---------------------------------------------------------------------------
+# Account-Selbstloeschung (Namens-Menue -> Account loeschen)
+# ---------------------------------------------------------------------------
+
+def test_account_delete_requires_session(running_server):
+    code, _ = _post_json(
+        running_server, "/api/account/delete", {"confirm": True}, with_session=False,
+    )
+    assert code == 401
+
+
+def test_account_delete_requires_confirm(running_server):
+    code, body = _post_json(running_server, "/api/account/delete", {})
+    assert code == 400
+    assert "error" in body
+    # Workspace unangetastet
+    assert (Paths(user=TEST_USER).data_dir).is_dir()
+
+
+def test_account_delete_wipes_workspace_registry_and_session(running_server):
+    """Bestaetigt geloescht: Workspace-Ordner weg, Registry-Eintrag weg,
+    Cookie geleert, alte Session ungueltig."""
+    from bewerber.dashboard import auth as _auth
+    user_dir = Paths(user=TEST_USER).data_dir
+    assert user_dir.is_dir()
+
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running_server}/api/account/delete",
+        data=json.dumps({"confirm": True}).encode(),
+        headers={"Content-Type": "application/json", "Cookie": _signed_cookie()},
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        body = json.loads(resp.read())
+        set_cookie = resp.headers.get("Set-Cookie", "")
+    assert body["ok"] is True
+    assert body.get("redirect") == "/login"
+    assert "Max-Age=0" in set_cookie  # Session-Cookie geleert
+
+    # Restlos: Workspace + Registry
+    assert not user_dir.exists()
+    registry = _auth.load_registry(Paths().users_dir / "registry.json")
+    assert TEST_USER not in registry
+
+    # Alte (signierte) Session ist ohne Registry-Eintrag wertlos
+    code, _ = _get(running_server, "/api/discover/status")
+    assert code == 401
