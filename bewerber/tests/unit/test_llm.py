@@ -4,6 +4,7 @@ from openai import RateLimitError
 from pydantic import BaseModel
 
 from bewerber.shared.llm import (
+    GeminiProvider,
     LLMAllProvidersFailed,
     LLMClient,
     LLMQuotaExhausted,
@@ -424,3 +425,161 @@ def test_chain_includes_gemini_when_google_key_set(monkeypatch, mocker):
     assert len(client.providers) == 2
     assert client.providers[0].name.startswith("openai:")
     assert client.providers[1].name.startswith("gemini:")
+
+
+# ---------------------------------------------------------------------------
+# HTTP-Timeouts: kein LLM-Call darf ohne Timeout laufen
+# (Incident 2026-07-13: genai haengt ohne Timeout unbegrenzt in ssl.read)
+# ---------------------------------------------------------------------------
+
+def test_openai_provider_sets_default_timeout():
+    """Selbstgebauter OpenAI-Client bekommt 120s statt SDK-Default (600s)."""
+    p = OpenAIProvider(model="m")
+    assert p.client.timeout == 120.0
+
+
+def test_openai_provider_fallback_key_client_sets_timeout():
+    p = OpenAIProvider(api_key="sk-fallback", model="m")
+    assert p.client.timeout == 120.0
+
+
+def test_openai_provider_timeout_env_override(monkeypatch):
+    monkeypatch.setenv("BEWERBER_LLM_TIMEOUT_S", "45")
+    p = OpenAIProvider(model="m")
+    assert p.client.timeout == 45.0
+
+
+def test_openai_provider_injected_client_untouched(mocker):
+    """Test-Injection: uebergebener Client wird nicht umkonfiguriert."""
+    fake = mocker.Mock()
+    p = OpenAIProvider(client=fake, model="m")
+    assert p.client is fake
+
+
+def test_gemini_provider_passes_timeout_ms_to_client(monkeypatch):
+    """genai.Client muss http_options mit Timeout (in ms) bekommen -
+    sonst uebergibt das SDK timeout=None an httpx (= unendlich)."""
+    captured = {}
+
+    class FakeGenaiClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("google.genai.Client", FakeGenaiClient)
+    GeminiProvider(api_key="AIz-fake", model="g")
+    assert captured["http_options"]["timeout"] == 120_000
+
+
+def test_gemini_provider_timeout_env_override(monkeypatch):
+    monkeypatch.setenv("BEWERBER_LLM_TIMEOUT_S", "45")
+    captured = {}
+
+    class FakeGenaiClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("google.genai.Client", FakeGenaiClient)
+    GeminiProvider(api_key="AIz-fake", model="g")
+    assert captured["http_options"]["timeout"] == 45_000
+
+
+def test_gemini_read_timeout_classified_as_transient(mocker):
+    """httpx-Timeout aus dem genai-SDK muss als LLMTransientError ankommen,
+    damit die Fallback-Kette greift (statt den Run zu crashen)."""
+    fake_client = mocker.Mock()
+    fake_client.models.generate_content.side_effect = httpx.ReadTimeout("read timed out")
+    p = GeminiProvider(model="g", client=fake_client)
+    with pytest.raises(LLMTransientError):
+        p.structured(system="s", user="u", schema=DummyOut)
+
+
+def test_gemini_text_read_timeout_classified_as_transient(mocker):
+    fake_client = mocker.Mock()
+    fake_client.models.generate_content.side_effect = httpx.ConnectTimeout("connect timed out")
+    p = GeminiProvider(model="g", client=fake_client)
+    with pytest.raises(LLMTransientError):
+        p.text(system="s", user="u")
+
+
+# ---------------------------------------------------------------------------
+# Circuit-Breaker: dauerhaft toter Provider wird fuer den Rest des
+# Client-Lebens uebersprungen statt bei jedem Call neu durchprobiert
+# (Incident 2026-07-13: Quota-Kaskade kostete Minuten PRO Job)
+# ---------------------------------------------------------------------------
+
+def test_circuit_opens_after_repeated_quota_failures(mocker, monkeypatch):
+    """Nach 2 Quota-Fails wird der Provider nicht mehr angefragt."""
+    monkeypatch.setattr(LLMClient, "RETRY_DELAY_S", 0)
+    p1 = _stub_provider(mocker, name="p1")
+    p1.structured.side_effect = LLMQuotaExhausted("p1 daily quota")
+    p2 = _stub_provider(mocker, name="p2")
+    p2.structured.return_value = DummyOut(answer="ok", score=1)
+
+    client = LLMClient(providers=[p1, p2])
+    for _ in range(4):
+        assert client.structured(system="s", user="u", schema=DummyOut).answer == "ok"
+
+    # Quota-Fehler retried nicht -> 1 Call pro Durchgang; ab Durchgang 3 offen
+    assert p1.structured.call_count == 2
+    assert p2.structured.call_count == 4
+
+
+def test_circuit_opens_after_repeated_transient_failures(mocker, monkeypatch):
+    """Nach 3 persistierenden Transient-Fails (je initial+retry) wird uebersprungen."""
+    monkeypatch.setattr(LLMClient, "RETRY_DELAY_S", 0)
+    p1 = _stub_provider(mocker, name="p1")
+    p1.text.side_effect = LLMTransientError("p1 down")
+    p2 = _stub_provider(mocker, name="p2")
+    p2.text.return_value = "ok"
+
+    client = LLMClient(providers=[p1, p2])
+    for _ in range(5):
+        assert client.text(system="s", user="u") == "ok"
+
+    # 3 Durchgaenge x (initial + retry) = 6 Calls, danach offen
+    assert p1.text.call_count == 6
+    assert p2.text.call_count == 5
+
+
+def test_circuit_success_resets_failure_counter(mocker, monkeypatch):
+    """Ein Erfolg setzt den Fail-Zaehler zurueck - kein Trip durch alte Fehler."""
+    monkeypatch.setattr(LLMClient, "RETRY_DELAY_S", 0)
+    ok = DummyOut(answer="p1", score=1)
+    p1 = _stub_provider(mocker, name="p1")
+    p1.structured.side_effect = [
+        LLMQuotaExhausted("fail 1"),   # Durchgang 1: Fail (Zaehler 1)
+        ok,                            # Durchgang 2: Erfolg (Reset)
+        LLMQuotaExhausted("fail 2"),   # Durchgang 3: Fail (Zaehler 1)
+        LLMQuotaExhausted("fail 3"),   # Durchgang 4: Fail (Zaehler 2 -> offen)
+    ]
+    p2 = _stub_provider(mocker, name="p2")
+    p2.structured.return_value = DummyOut(answer="p2", score=1)
+
+    client = LLMClient(providers=[p1, p2])
+    answers = [
+        client.structured(system="s", user="u", schema=DummyOut).answer
+        for _ in range(5)
+    ]
+
+    assert answers == ["p2", "p1", "p2", "p2", "p2"]
+    assert p1.structured.call_count == 4  # Durchgang 5: uebersprungen
+
+
+def test_all_circuits_open_raises_immediately(mocker, monkeypatch):
+    """Sind alle Provider offen, kommt sofort LLMAllProvidersFailed."""
+    monkeypatch.setattr(LLMClient, "RETRY_DELAY_S", 0)
+    p1 = _stub_provider(mocker, name="p1")
+    p1.text.side_effect = LLMQuotaExhausted("p1")
+    p2 = _stub_provider(mocker, name="p2")
+    p2.text.side_effect = LLMQuotaExhausted("p2")
+
+    client = LLMClient(providers=[p1, p2])
+    for _ in range(2):
+        with pytest.raises(LLMAllProvidersFailed):
+            client.text(system="s", user="u")
+
+    # Beide offen -> dritter Call fragt keinen Provider mehr an
+    with pytest.raises(LLMAllProvidersFailed):
+        client.text(system="s", user="u")
+    assert p1.text.call_count == 2
+    assert p2.text.call_count == 2

@@ -22,6 +22,7 @@ import os
 import time
 from typing import Any, Callable, Type, TypeVar
 
+import httpx
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -33,6 +34,20 @@ from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
 log = logging.getLogger(__name__)
+
+# Harter HTTP-Timeout fuer alle selbstgebauten Provider-Clients. Ohne ihn
+# uebergibt google-genai timeout=None an httpx (haengt unbegrenzt in ssl.read,
+# Incident 2026-07-13); der OpenAI-SDK-Default waere 600s.
+DEFAULT_TIMEOUT_S = 120.0
+
+
+def _timeout_s() -> float:
+    raw = os.environ.get("BEWERBER_LLM_TIMEOUT_S", "")
+    try:
+        return float(raw) if raw else DEFAULT_TIMEOUT_S
+    except ValueError:
+        log.warning("[LLM] BEWERBER_LLM_TIMEOUT_S=%r ungueltig - nutze %ss", raw, DEFAULT_TIMEOUT_S)
+        return DEFAULT_TIMEOUT_S
 
 
 _GEMINI_DROP_KEYS = frozenset({
@@ -104,9 +119,9 @@ class OpenAIProvider(_Provider):
         if client is not None:
             self.client = client
         elif api_key:
-            self.client = OpenAI(api_key=api_key)
+            self.client = OpenAI(api_key=api_key, timeout=_timeout_s())
         else:
-            self.client = OpenAI()
+            self.client = OpenAI(timeout=_timeout_s())
         self.model = model
         self.name = f"openai:{model}"
 
@@ -172,7 +187,12 @@ class GeminiProvider(_Provider):
         # Lazy import: only load google-genai when this provider is actually constructed
         from google import genai  # noqa: WPS433
         self.model = model
-        self.client = client or genai.Client(api_key=api_key or os.environ.get("GOOGLE_API_KEY"))
+        # http_options.timeout ist in MILLISEKUNDEN; ohne ihn gibt das SDK
+        # timeout=None an httpx weiter (= kein Timeout, ewiger ssl.read).
+        self.client = client or genai.Client(
+            api_key=api_key or os.environ.get("GOOGLE_API_KEY"),
+            http_options={"timeout": int(_timeout_s() * 1000)},
+        )
         self.name = f"gemini:{model}"
 
     def structured(self, *, system: str, user: str, schema: Type[T]) -> T:
@@ -192,6 +212,9 @@ class GeminiProvider(_Provider):
         except gerrors.ClientError as e:
             self._raise_classified(e)
         except gerrors.ServerError as e:
+            raise LLMTransientError(f"{self.name}: {e}") from e
+        except httpx.TransportError as e:
+            # Timeout / Netzwerkfehler unterhalb der genai-Fehlerklassen
             raise LLMTransientError(f"{self.name}: {e}") from e
         # Wir haben ein dict-Schema uebergeben, also liefert resp.parsed ein
         # dict (kein Pydantic-Objekt). Immer ueber den expliziten Validator.
@@ -214,6 +237,8 @@ class GeminiProvider(_Provider):
         except gerrors.ClientError as e:
             self._raise_classified(e)
         except gerrors.ServerError as e:
+            raise LLMTransientError(f"{self.name}: {e}") from e
+        except httpx.TransportError as e:
             raise LLMTransientError(f"{self.name}: {e}") from e
         return resp.text or ""
 
@@ -255,6 +280,11 @@ class LLMClient:
     DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
     DEFAULT_PROVIDER_ORDER = "openai,gemini"
     RETRY_DELAY_S = 1.5
+    # Circuit-Breaker: nach so vielen AUFEINANDERFOLGENDEN Fehlern wird ein
+    # Provider fuer die Lebensdauer dieses Clients (= einen Run) uebersprungen.
+    # Quota trippt schneller: erschoepfte Tages-Quota erholt sich nicht mid-run.
+    QUOTA_TRIP_AFTER = 2
+    TRANSIENT_TRIP_AFTER = 3
 
     def __init__(
         self,
@@ -262,6 +292,8 @@ class LLMClient:
         model: str | None = None,
         providers: list[_Provider] | None = None,
     ) -> None:
+        # Breaker-Zustand je Provider-Index: consecutive-Fail-Zaehler + offen-Flag
+        self._breaker: dict[int, dict[str, Any]] = {}
         if providers is not None:
             self.providers = list(providers)
             self.model = (
@@ -393,18 +425,44 @@ class LLMClient:
 
     def _call_chain(self, fn: Callable[[_Provider], Any], *, label: str) -> Any:
         last_exc: Exception | None = None
-        for provider in self.providers:
+        for idx, provider in enumerate(self.providers):
+            br = self._breaker.setdefault(idx, {"quota": 0, "transient": 0, "open": False})
+            if br["open"]:
+                continue
             try:
-                return self._call_with_retry(fn, provider, label=label)
+                result = self._call_with_retry(fn, provider, label=label)
             except LLMQuotaExhausted as e:
                 last_exc = e
                 log.warning("[LLM/%s] %s quota exhausted; trying next provider", label, provider.name)
+                br["quota"] += 1
+                self._maybe_trip(br, provider, count=br["quota"], limit=self.QUOTA_TRIP_AFTER, reason="quota")
+                continue
             except LLMTransientError as e:
                 last_exc = e
                 log.warning("[LLM/%s] %s transient error persists; trying next provider", label, provider.name)
+                br["transient"] += 1
+                self._maybe_trip(br, provider, count=br["transient"], limit=self.TRANSIENT_TRIP_AFTER, reason="transient")
+                continue
+            br["quota"] = 0
+            br["transient"] = 0
+            return result
+        if last_exc is None:
+            raise LLMAllProvidersFailed(
+                f"All {len(self.providers)} provider(s) circuit-open "
+                "(Quota/Netzfehler frueher in diesem Lauf)"
+            )
         raise LLMAllProvidersFailed(
             f"All {len(self.providers)} provider(s) failed; last error: {last_exc}"
         ) from last_exc
+
+    @staticmethod
+    def _maybe_trip(br: dict[str, Any], provider: _Provider, *, count: int, limit: int, reason: str) -> None:
+        if count >= limit and not br["open"]:
+            br["open"] = True
+            log.warning(
+                "[LLM] %s circuit open nach %dx %s - wird fuer den Rest des Laufs uebersprungen",
+                provider.name, count, reason,
+            )
 
     def _call_with_retry(self, fn: Callable[[_Provider], Any], provider: _Provider, *, label: str) -> Any:
         try:
