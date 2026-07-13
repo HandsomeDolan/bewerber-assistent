@@ -38,6 +38,10 @@
   #status.ok { display: block; background: #e8f7ec; color: #1a5b2b; border: 1px solid #b8e0c2; }
   #status.error { display: block; background: #fde9e9; color: #8a1a1a; border: 1px solid #f3b0b0; white-space: pre-wrap; }
   .dirty-flag { color: #c84; font-size: 12px; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal { background: #fff; border-radius: 8px; padding: 22px 24px; width: 520px; max-width: 92vw; box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
+  .kw-group-title { font-weight: 600; font-size: 12px; color: #666; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .kw-item { display: block; font-size: 13px; padding: 2px 0; }
 </style>
 </head>
 <body>
@@ -89,6 +93,7 @@
   <div class="search-card">
     <div class="head">
       <input type="text" class="name" placeholder="Name der Suche (z.B. KI Manager)" required>
+      <button class="gen-kw-btn" type="button" title="Keywords hinzufügen">✨ Keywords hinzufügen</button>
       <button class="dup-btn" type="button" title="Duplizieren">⎘</button>
       <button class="del-btn danger" type="button" title="Loeschen">×</button>
     </div>
@@ -114,6 +119,34 @@
     </label>
   </div>
 </template>
+
+<div id="kw-modal" class="modal-overlay" style="display:none;">
+  <div class="modal">
+    <h3 style="margin-top:0;">Keywords hinzufügen</h3>
+    <div id="kw-linkedin-hint" style="display:none; font-size:12px; color:#a60; margin-bottom:10px;">
+      ⚠ Board LinkedIn aktiv: jede Variante = eine zusätzliche LinkedIn-Abfrage.
+    </div>
+
+    <label style="display:block; margin-bottom:6px;">
+      <input type="checkbox" id="kw-mode-generate" checked> Varianten generieren
+    </label>
+    <textarea id="kw-desc" rows="2" placeholder="Kurz beschreiben, was du suchst (optional): z.B. strategische Rollen im Mittelstand, kein reines Consulting"></textarea>
+
+    <label style="display:block; margin:12px 0 6px;">
+      <input type="checkbox" id="kw-mode-manual"> Ich füge Keywords selbst hinzu
+    </label>
+    <textarea id="kw-manual" rows="3" placeholder="ein Keyword pro Zeile …" style="display:none;"></textarea>
+
+    <div id="kw-status" style="font-size:13px; margin:10px 0; min-height:18px;"></div>
+    <div id="kw-suggestions" style="max-height:260px; overflow:auto; margin-bottom:12px;"></div>
+
+    <div style="display:flex; justify-content:flex-end; gap:8px;">
+      <button type="button" id="kw-cancel">Abbrechen</button>
+      <button type="button" id="kw-generate" class="primary">Generieren</button>
+      <button type="button" id="kw-apply" class="primary" style="display:none;">Übernehmen</button>
+    </div>
+  </div>
+</div>
 
 <script id="initial-config" type="application/json">{{ config_json }}</script>
 <script>
@@ -180,6 +213,7 @@ function buildSearchCard(search) {
     node.parentNode.insertBefore(buildSearchCard(copy), node.nextSibling);
     setDirty(true);
   });
+  node.querySelector(".gen-kw-btn").addEventListener("click", () => kwOpen(node));
 
   return node;
 }
@@ -274,6 +308,135 @@ window.addEventListener("beforeunload", e => {
 
 renderConfig(initialConfig);
 setDirty(false);
+
+// --- Keyword-Varianten-Modal ---
+let kwActiveCard = null;
+
+function kwOpen(card) {
+  kwActiveCard = card;
+  document.getElementById("kw-desc").value = "";
+  document.getElementById("kw-manual").value = "";
+  document.getElementById("kw-mode-generate").checked = true;
+  document.getElementById("kw-mode-manual").checked = false;
+  document.getElementById("kw-manual").style.display = "none";
+  document.getElementById("kw-desc").style.display = "";
+  document.getElementById("kw-suggestions").innerHTML = "";
+  document.getElementById("kw-status").textContent = "";
+  document.getElementById("kw-generate").style.display = "";
+  document.getElementById("kw-apply").style.display = "none";
+  const linkedinOn = Array.from(card.querySelectorAll(".board:checked")).some(cb => cb.value === "linkedin");
+  document.getElementById("kw-linkedin-hint").style.display = linkedinOn ? "" : "none";
+  document.getElementById("kw-modal").style.display = "flex";
+}
+
+function kwClose() {
+  document.getElementById("kw-modal").style.display = "none";
+  kwActiveCard = null;
+}
+
+document.getElementById("kw-mode-generate").addEventListener("change", e => {
+  document.getElementById("kw-desc").style.display = e.target.checked ? "" : "none";
+});
+document.getElementById("kw-mode-manual").addEventListener("change", e => {
+  document.getElementById("kw-manual").style.display = e.target.checked ? "" : "none";
+});
+document.getElementById("kw-cancel").addEventListener("click", kwClose);
+document.getElementById("kw-modal").addEventListener("click", e => {
+  if (e.target.id === "kw-modal") kwClose();
+});
+
+document.getElementById("kw-generate").addEventListener("click", async () => {
+  const genOn = document.getElementById("kw-mode-generate").checked;
+  const status = document.getElementById("kw-status");
+  const suggestions = document.getElementById("kw-suggestions");
+  suggestions.innerHTML = "";
+
+  if (!genOn) {
+    // Nur eigene Keywords -> direkt Übernehmen-Modus
+    status.textContent = "";
+    document.getElementById("kw-generate").style.display = "none";
+    document.getElementById("kw-apply").style.display = "";
+    return;
+  }
+
+  const seeds = [];
+  const name = kwActiveCard.querySelector(".name").value.trim();
+  if (name) seeds.push(name);
+  seeds.push(...linesToList(kwActiveCard.querySelector(".keywords").value));
+  const description = document.getElementById("kw-desc").value.trim();
+
+  status.textContent = "Generiere Varianten …";
+  document.getElementById("kw-generate").disabled = true;
+  try {
+    const resp = await fetch("/api/keywords/generate", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({seeds, description}),
+    });
+    const body = await resp.json();
+    if (!resp.ok) {
+      status.textContent = "Fehler: " + (body.error || resp.status);
+      return;
+    }
+    renderSuggestions(body.variants || []);
+    status.textContent = body.variants.length
+      ? `${body.variants.length} Vorschläge — abwählen, was nicht passt.`
+      : "Keine neuen Varianten gefunden.";
+    document.getElementById("kw-generate").style.display = "none";
+    document.getElementById("kw-apply").style.display = "";
+  } catch (e) {
+    status.textContent = "Netzfehler: " + e.message;
+  } finally {
+    document.getElementById("kw-generate").disabled = false;
+  }
+});
+
+function renderSuggestions(variants) {
+  const box = document.getElementById("kw-suggestions");
+  box.innerHTML = "";
+  const groups = {};
+  variants.forEach(v => { (groups[v.kategorie] = groups[v.kategorie] || []).push(v.keyword); });
+  Object.keys(groups).forEach(cat => {
+    const title = document.createElement("div");
+    title.className = "kw-group-title";
+    title.textContent = cat;
+    box.appendChild(title);
+    groups[cat].forEach(kw => {
+      const label = document.createElement("label");
+      label.className = "kw-item";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      cb.value = kw;
+      cb.className = "kw-suggest";
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(" " + kw));
+      box.appendChild(label);
+    });
+  });
+}
+
+document.getElementById("kw-apply").addEventListener("click", () => {
+  const ta = kwActiveCard.querySelector(".keywords");
+  const existing = linesToList(ta.value);
+  const seen = new Set(existing.map(k => k.toLowerCase()));
+  const additions = [];
+
+  Array.from(document.querySelectorAll("#kw-suggestions .kw-suggest:checked"))
+    .forEach(cb => additions.push(cb.value));
+  if (document.getElementById("kw-mode-manual").checked) {
+    additions.push(...linesToList(document.getElementById("kw-manual").value));
+  }
+
+  additions.forEach(kw => {
+    const key = kw.toLowerCase();
+    if (kw && !seen.has(key)) { seen.add(key); existing.push(kw); }
+  });
+
+  ta.value = listToLines(existing);
+  setDirty(true);
+  kwClose();
+});
 </script>
 </body>
 </html>
