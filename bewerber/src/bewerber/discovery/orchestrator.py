@@ -1,7 +1,8 @@
 import logging
 import re
+import threading
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Optional
 
 from bewerber.shared.llm import LLMClient
 from bewerber.shared.state import upsert_job
@@ -72,17 +73,30 @@ def discover(
     state: BewerberState,
     master_yaml_text: str,
     llm: LLMClient,
+    progress: Optional[Callable[[dict], None]] = None,
+    checkpoint: Optional[Callable[[BewerberState], None]] = None,
+    cancel: Optional[threading.Event] = None,
 ) -> BewerberState:
     """Run scrape → enrich → score → upsert for each search × board.
 
     Per-board errors are caught and recorded in state.scrape_errors;
     other boards continue running.
+
+    progress:   nach jedem gescorten Job mit {search, board, done, total} gerufen.
+    checkpoint: nach jedem fertigen Board mit dem State gerufen (Zwischenspeichern);
+                auch beim Abbruch, damit Teilergebnisse erhalten bleiben.
+    cancel:     Event; sobald gesetzt, stoppt der Lauf vor dem naechsten Job/Board.
     """
     state.last_discovery_run = _now_iso()
+
+    def _cancelled() -> bool:
+        return cancel is not None and cancel.is_set()
 
     for search in config.searches:
         exclude_pattern = _build_exclude_pattern(_excludes_for_search(config, search))
         for board in search.boards:
+            if _cancelled():
+                return state
             adapter = scraper_registry.get(board)
             if adapter is None:
                 state.scrape_errors[board] = ScrapeError(
@@ -112,8 +126,20 @@ def discover(
                 search_name=search.name,
             )
 
-            for raw in raw_jobs:
+            total = len(raw_jobs)
+            for done, raw in enumerate(raw_jobs, start=1):
+                if _cancelled():
+                    break
                 _process_one(raw, state=state, master_yaml_text=master_yaml_text, llm=llm)
+                if progress is not None:
+                    progress({
+                        "search": search.name, "board": board,
+                        "done": done, "total": total,
+                    })
+            if checkpoint is not None:
+                checkpoint(state)
+            if _cancelled():
+                return state
     return state
 
 

@@ -339,3 +339,127 @@ def test_discover_skips_rescoring_when_description_hash_unchanged(mocker, monkey
     # Existing scoring + status preserved
     assert state.jobs["arbeitsagentur-1"].scoring.fit_score == 9
     assert state.jobs["arbeitsagentur-1"].status == JobStatus.APPLIED
+
+
+# ---------------------------------------------------------------------------
+# Progress / Checkpoint / Cancel (Incident 2026-07-13: Run lief unsichtbar,
+# unabbrechbar, und verlor bei Restart alle Ergebnisse)
+# ---------------------------------------------------------------------------
+
+def _fake_scoring():
+    return Scoring(
+        fit_score=5, begruendung="ok", matched_skills=[],
+        missing_skills=[], red_flags=[], verbessern_in_anschreiben=[],
+    )
+
+
+def _single_board_setup(mocker, monkeypatch, jobs):
+    adapter = mocker.Mock()
+    adapter.name = "arbeitsagentur"
+    adapter.search.return_value = jobs
+    monkeypatch.setattr(
+        "bewerber.discovery.orchestrator.scraper_registry",
+        {"arbeitsagentur": adapter},
+    )
+    mocker.patch("bewerber.discovery.orchestrator.enrich_job", side_effect=lambda j: j)
+    score = mocker.patch(
+        "bewerber.discovery.orchestrator.score_job", return_value=_fake_scoring(),
+    )
+    config = SearchesConfig(searches=[
+        SearchEntry(name="A", keywords=["KI"], boards=["arbeitsagentur"]),
+    ])
+    return adapter, score, config
+
+
+def test_discover_reports_progress_per_job(mocker, monkeypatch):
+    jobs = [_job(ext="1"), _job(ext="2")]
+    _, _, config = _single_board_setup(mocker, monkeypatch, jobs)
+
+    seen = []
+    discover(
+        config, state=BewerberState(), master_yaml_text="m",
+        llm=mocker.Mock(), progress=seen.append,
+    )
+
+    per_job = [p for p in seen if p.get("done")]
+    assert per_job == [
+        {"search": "A", "board": "arbeitsagentur", "done": 1, "total": 2},
+        {"search": "A", "board": "arbeitsagentur", "done": 2, "total": 2},
+    ]
+
+
+def test_discover_checkpoints_state_after_each_board(mocker, monkeypatch):
+    """Zwei Boards -> zwei Checkpoint-Aufrufe mit dem State (Zwischenspeichern)."""
+    adapter_a = mocker.Mock()
+    adapter_a.name = "arbeitsagentur"
+    adapter_a.search.return_value = [_job("arbeitsagentur", "1")]
+    adapter_b = mocker.Mock()
+    adapter_b.name = "linkedin"
+    adapter_b.search.return_value = [_job("linkedin", "2")]
+    monkeypatch.setattr(
+        "bewerber.discovery.orchestrator.scraper_registry",
+        {"arbeitsagentur": adapter_a, "linkedin": adapter_b},
+    )
+    mocker.patch("bewerber.discovery.orchestrator.enrich_job", side_effect=lambda j: j)
+    mocker.patch("bewerber.discovery.orchestrator.score_job", return_value=_fake_scoring())
+
+    config = SearchesConfig(searches=[
+        SearchEntry(name="A", keywords=["KI"], boards=["arbeitsagentur", "linkedin"]),
+    ])
+    state = BewerberState()
+    checkpoints = mocker.Mock()
+    discover(config, state=state, master_yaml_text="m", llm=mocker.Mock(),
+             checkpoint=checkpoints)
+
+    assert checkpoints.call_count == 2
+    checkpoints.assert_called_with(state)
+
+
+def test_discover_cancel_stops_before_next_job(mocker, monkeypatch):
+    """Cancel nach Job 1 -> Job 2+3 werden nicht mehr gescored, State behaelt Job 1."""
+    import threading
+    jobs = [_job(ext="1"), _job(ext="2"), _job(ext="3")]
+    _, score, config = _single_board_setup(mocker, monkeypatch, jobs)
+
+    cancel = threading.Event()
+    state = BewerberState()
+    discover(
+        config, state=state, master_yaml_text="m", llm=mocker.Mock(),
+        progress=lambda p: cancel.set(),  # Abbruch direkt nach dem ersten Job
+        cancel=cancel,
+    )
+
+    assert score.call_count == 1
+    assert "arbeitsagentur-1" in state.jobs
+    assert "arbeitsagentur-2" not in state.jobs
+
+
+def test_discover_cancel_before_start_skips_scrape(mocker, monkeypatch):
+    """Bereits gesetztes Cancel -> gar kein Board-Scrape mehr."""
+    import threading
+    adapter, score, config = _single_board_setup(mocker, monkeypatch, [_job()])
+
+    cancel = threading.Event()
+    cancel.set()
+    discover(config, state=BewerberState(), master_yaml_text="m",
+             llm=mocker.Mock(), cancel=cancel)
+
+    adapter.search.assert_not_called()
+    score.assert_not_called()
+
+
+def test_discover_cancelled_run_still_checkpoints(mocker, monkeypatch):
+    """Auch beim Abbruch wird der bis dahin erreichte State gesichert."""
+    import threading
+    jobs = [_job(ext="1"), _job(ext="2")]
+    _, _, config = _single_board_setup(mocker, monkeypatch, jobs)
+
+    cancel = threading.Event()
+    checkpoints = mocker.Mock()
+    state = BewerberState()
+    discover(
+        config, state=state, master_yaml_text="m", llm=mocker.Mock(),
+        progress=lambda p: cancel.set(), cancel=cancel, checkpoint=checkpoints,
+    )
+
+    checkpoints.assert_called_once_with(state)
