@@ -1,3 +1,4 @@
+import pytest
 from pathlib import Path
 from bewerber.profile.extractor import (
     ExtractedProfile,
@@ -20,7 +21,7 @@ def test_extract_profile_calls_llm_with_document_texts(tmp_path, mocker):
 
     mocker.patch(
         "bewerber.profile.extractor.read_document_text",
-        side_effect=lambda p: f"text-of-{p.name}",
+        side_effect=lambda p: f"ausfuehrlicher lebenslauf text-of-{p.name} mit genug inhalt",
     )
 
     fake_llm = mocker.Mock()
@@ -60,7 +61,7 @@ def test_extract_skips_unsupported_files(tmp_path, mocker):
     captured: list[str] = []
     mocker.patch(
         "bewerber.profile.extractor.read_document_text",
-        side_effect=lambda p: (captured.append(p.name) or "x"),
+        side_effect=lambda p: (captured.append(p.name) or "genug lesbarer text hier drin fuer die mindestschwelle"),
     )
     fake_llm = mocker.Mock()
     fake_llm.structured.return_value = ExtractedProfile(
@@ -107,6 +108,39 @@ def test_save_anschreiben_examples_creates_dir(tmp_path, mocker):
     saved = save_anschreiben_examples([src], out_dir)
     assert out_dir.is_dir()
     assert saved[0].parent == out_dir
+
+
+def test_extract_raises_on_empty_documents(tmp_path, mocker):
+    """Scan/Bild-PDF ohne Text-Layer -> leerer Extraktionstext -> ValueError,
+    KEIN LLM-Call (sonst landet ein leeres/halluziniertes Profil in master_profile)."""
+    docs_dir = tmp_path / "Bewerbungsunterlagen"
+    docs_dir.mkdir()
+    (docs_dir / "scan1.pdf").write_bytes(b"%PDF-1.4 fake")
+    (docs_dir / "scan2.pdf").write_bytes(b"%PDF-1.4 fake")
+    mocker.patch("bewerber.profile.extractor.read_document_text", return_value="   ")  # nur Whitespace
+    fake_llm = mocker.Mock()
+    with pytest.raises(ValueError, match="Zu wenig lesbarer Text"):
+        extract_profile_from_documents(docs_dir, llm=fake_llm)
+    fake_llm.structured.assert_not_called()
+
+
+def test_save_anschreiben_examples_skips_unreadable(tmp_path, mocker):
+    """Eine kaputte Quelle darf den Batch nicht abbrechen - sie wird uebersprungen."""
+    good = tmp_path / "gut.docx"
+    bad = tmp_path / "kaputt.pdf"
+    good.write_bytes(b"x")
+    bad.write_bytes(b"x")
+
+    def _read(p):
+        if p.name == "kaputt.pdf":
+            raise RuntimeError("Lesefehler simuliert")
+        return f"INHALT VON {p.name}"
+
+    mocker.patch("bewerber.profile.extractor.read_document_text", side_effect=_read)
+    out_dir = tmp_path / "examples"
+    saved = save_anschreiben_examples([bad, good], out_dir)
+    assert len(saved) == 1
+    assert saved[0].read_text(encoding="utf-8") == "INHALT VON gut.docx"
 
 
 def test_extract_truncates_huge_document_set(tmp_path, mocker):

@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
 
@@ -11,9 +12,14 @@ from bewerber.shared.profile_schema import (
     Sprache,
 )
 
+log = logging.getLogger(__name__)
 
 SUPPORTED_EXT = {".pdf", ".docx"}
 MAX_TOTAL_CHARS = 200_000
+# Untergrenze fuer verwertbaren Extraktionstext. Bild-/Scan-PDFs ohne Text-Layer
+# liefern (fast) nichts; dann NICHT das LLM raten lassen (sonst landet ein
+# leeres/halluziniertes Profil in master_profile.yaml).
+MIN_EXTRACTED_CHARS = 50
 
 EXTRACTOR_SYSTEM_PROMPT = """Du extrahierst Lebenslauf-Daten aus deutschen Bewerbungsunterlagen (Zeugnisse, alte Lebensläufe).
 Antworte ausschließlich auf Deutsch. Erfinde keine Daten.
@@ -53,6 +59,7 @@ def extract_profile_from_documents(
 
     parts: list[str] = []
     used = 0
+    extracted_chars = 0  # nur erfolgreich gelesener Dokumenttext (ohne Header/Fehler-Marker)
     for f in files:
         if used >= MAX_TOTAL_CHARS:
             parts.append(f"\n--- {f.name} ---\n<übersprungen: Token-Budget erreicht>\n")
@@ -61,12 +68,21 @@ def extract_profile_from_documents(
             text = read_document_text(f)
         except Exception as e:  # noqa: BLE001
             text = f"<Lesefehler: {e}>"
+        else:
+            extracted_chars += len(text.strip())
         chunk = f"\n--- {f.name} ---\n{text}\n"
         remaining = MAX_TOTAL_CHARS - used
         if len(chunk) > remaining:
             chunk = chunk[:remaining]
         parts.append(chunk)
         used += len(chunk)
+
+    if extracted_chars < MIN_EXTRACTED_CHARS:
+        raise ValueError(
+            f"Zu wenig lesbarer Text in den Dokumenten ({extracted_chars} Zeichen) - "
+            "vermutlich Scan/Bild-PDF ohne Text-Layer. Extraktion abgebrochen, "
+            "damit kein leeres Profil entsteht."
+        )
 
     user = (
         "Folgende Bewerbungsunterlagen liegen vor. "
@@ -87,7 +103,11 @@ def save_anschreiben_examples(
     out_dir.mkdir(parents=True, exist_ok=True)
     saved: list[Path] = []
     for i, src in enumerate(sources, start=1):
-        text = read_document_text(src)
+        try:
+            text = read_document_text(src)
+        except Exception as e:  # noqa: BLE001 - eine kaputte Quelle darf den Batch nicht kippen
+            log.warning("[anschreiben-examples] konnte %s nicht lesen (%s) - uebersprungen", src.name, e)
+            continue
         out = out_dir / f"{i:02d}_{src.stem}.txt"
         out.write_text(text, encoding="utf-8")
         saved.append(out)
