@@ -64,17 +64,17 @@
       <button class="btn btn-secondary" id="add-btn">+ Anlage hinzufuegen</button>
     </h2>
     <p class="hint">
-      Hinterlege hier die Dateien (Zeugnisse, Urkunden), die bei jedem
-      <code>bewerber tailor</code>-Lauf automatisch in den neuen Bewerbungsordner
-      kopiert werden. Die Labels erscheinen im Anlagen-Block des Anschreibens.
-      "Lebenslauf" wird automatisch vorangestellt - hier NICHT eintragen.
-      Pfade muessen <b>absolut</b> sein.
+      Hinterlege hier die Dateien (Zeugnisse, Urkunden), die bei jeder erstellten
+      Bewerbung automatisch in den Bewerbungsordner kopiert werden. Die Labels
+      erscheinen im Anlagen-Block des Anschreibens. "Lebenslauf" wird automatisch
+      vorangestellt - hier NICHT eintragen. Einfachster Weg: PDFs unten hochladen -
+      sie werden in deinem Bereich gespeichert und automatisch als Anlage eingetragen.
     </p>
     <div class="upload-box">
-      <label>Dateien hochladen (PDF):
+      <label>Dateien hochladen (PDF) - werden automatisch als Anlage eingetragen:
         <input type="file" id="anlagen-upload" multiple accept="application/pdf">
       </label>
-      <button class="btn btn-secondary" type="button" onclick="uploadAnlagen()">Hochladen</button>
+      <button class="btn btn-secondary" type="button" id="anlagen-upload-btn" onclick="uploadAnlagen()">Hochladen</button>
       <span id="anlagen-upload-status" style="font-size:12px;"></span>
     </div>
     <div id="anlagen-list">
@@ -93,7 +93,7 @@
     </div>
     <label class="field">
       <span>Dateien</span>
-      <small>Absolute Pfade, eine Datei pro Zeile. Mehrere Zeilen unter einem Label, wenn ein Dokument auf mehrere PDFs verteilt ist (z.B. Technikerzeugnis Seite 1 + 2).</small>
+      <small>Eine Datei pro Zeile - hochgeladene Dateien stehen hier automatisch (Pfad "anlagen/..."). Mehrere Zeilen unter einem Label, wenn ein Dokument auf mehrere PDFs verteilt ist (z.B. Technikerzeugnis Seite 1 + 2). Fortgeschritten: absolute Server-Pfade sind weiterhin moeglich.</small>
       <textarea class="input files-input" rows="3" placeholder="/absoluter/Pfad/zu/deinem/_anlagen/Arbeitszeugnis.pdf"></textarea>
     </label>
     <div class="file-status"></div>
@@ -275,6 +275,18 @@ window.addEventListener("beforeunload", e => {
 renderConfig(initialConfig);
 setDirty(false);
 
+function onAnlagenUploaded(saved) {
+  // Jede hochgeladene Datei direkt als Anlage-Karte eintragen (Label = Dateiname)
+  const list = document.getElementById("anlagen-list");
+  const empty = list.querySelector(".empty-state");
+  if (empty) empty.remove();
+  for (const rel of saved) {
+    const base = rel.split("/").pop().replace(/\.pdf$/i, "").replace(/[_-]+/g, " ");
+    list.appendChild(buildCard({label: base, files: [rel]}));
+  }
+  if (saved.length) setDirty(true);
+}
+
 async function uploadAnlagen() {
   const input = document.getElementById("anlagen-upload");
   if (!input.files.length) return;
@@ -287,7 +299,8 @@ async function uploadAnlagen() {
     const body = await resp.json();
     if (!resp.ok) { status.textContent = body.error || "Fehler"; return; }
     status.textContent = "Hochgeladen: " + body.saved.join(", ");
-    if (window.onAnlagenUploaded) window.onAnlagenUploaded(body.saved);
+    onAnlagenUploaded(body.saved);
+    input.value = "";
   } catch (e) { status.textContent = "Netzfehler: " + e.message; }
 }
 </script>

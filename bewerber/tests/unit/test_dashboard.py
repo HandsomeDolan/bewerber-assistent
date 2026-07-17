@@ -126,3 +126,14 @@ def test_render_dashboard_has_discover_limit_dialog():
     assert 'id="discover-sources"' in html
     assert "pro Lauf" in html
     assert "wie viele Jobs schon in deiner" in html
+
+
+def test_render_anlagen_upload_auto_adds_cards_and_pi_friendly_hints():
+    """Auf dem Pi werden Anlagen hochgeladen: der Upload traegt sie automatisch
+    als Karte ein, die Hinweise verlangen keine absoluten Pfade mehr."""
+    from bewerber.dashboard.render import render_anlagen_editor
+    from bewerber.shared.anlagen import AnlagenConfig
+    html = render_anlagen_editor(AnlagenConfig())
+    assert "onAnlagenUploaded" in html and "function onAnlagenUploaded" in html
+    assert "automatisch als Anlage eingetragen" in html
+    assert "Pfade muessen <b>absolut</b> sein" not in html

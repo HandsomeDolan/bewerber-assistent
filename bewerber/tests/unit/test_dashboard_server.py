@@ -2203,3 +2203,17 @@ def test_discover_run_rejects_invalid_limit(running_server, tmp_path):
     code, body = _post_json(running_server, "/api/discover/run", {"limit": 999})
     assert code == 400
     assert "error" in body
+
+
+def test_verify_anlagen_resolves_relative_paths_against_user_dir(running_server):
+    """Hochgeladene Anlagen haben relative Pfade (anlagen/foo.pdf) - Pruefen
+    muss sie gegen den User-Workspace aufloesen statt sie als fehlend zu melden."""
+    up = Paths(user=TEST_USER)
+    (up.data_dir / "anlagen").mkdir(parents=True, exist_ok=True)
+    (up.data_dir / "anlagen" / "zeugnis.pdf").write_bytes(b"%PDF-1.4 fake")
+
+    code, body = _post_json(running_server, "/api/anlagen/verify", {
+        "paths": ["anlagen/zeugnis.pdf", "anlagen/gibtsnicht.pdf"],
+    })
+    assert code == 200
+    assert body["missing"] == ["anlagen/gibtsnicht.pdf"]

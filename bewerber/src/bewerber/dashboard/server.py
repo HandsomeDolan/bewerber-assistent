@@ -676,7 +676,15 @@ class _Handler(BaseHTTPRequestHandler):
         if not isinstance(paths, list):
             self._send_json(400, {"error": "paths must be a list"})
             return
-        missing = [p for p in paths if not Path(p).is_file()]
+        # Relative Pfade (z. B. "anlagen/zeugnis.pdf" aus dem Upload) gegen den
+        # User-Workspace aufloesen - wie copy_anlagen_to() es beim Tailoring tut.
+        base = self.paths.data_dir
+        def _exists(raw: str) -> bool:
+            pth = Path(raw)
+            if not pth.is_absolute():
+                pth = base / pth
+            return pth.is_file()
+        missing = [p for p in paths if not _exists(p)]
         self._send_json(200, {"missing": missing})
 
     def _handle_anlagen_upload(self) -> None:
