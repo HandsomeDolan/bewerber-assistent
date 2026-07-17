@@ -77,6 +77,7 @@ def discover(
     checkpoint: Optional[Callable[[BewerberState], None]] = None,
     cancel: Optional[threading.Event] = None,
     per_board_limit: Optional[int] = None,
+    sources: Optional[list[tuple[str, str]]] = None,
 ) -> BewerberState:
     """Run scrape → enrich → score → upsert for each search × board.
 
@@ -89,17 +90,27 @@ def discover(
     cancel:     Event; sobald gesetzt, stoppt der Lauf vor dem naechsten Job/Board.
     per_board_limit: hoechstens N Jobs pro Suche x Board scoren/hinzufuegen
                 (wird auch an die Scraper durchgereicht, um Scrape-Zeit zu sparen).
+    sources:    optionale Auswahl von (Suchname, Board)-Kombis; None = alle.
     """
     state.last_discovery_run = _now_iso()
 
     def _cancelled() -> bool:
         return cancel is not None and cancel.is_set()
 
-    source_count = sum(len(s.boards) for s in config.searches)
+    selected = {tuple(s) for s in sources} if sources is not None else None
+
+    def _selected(search_name: str, board: str) -> bool:
+        return selected is None or (search_name, board) in selected
+
+    source_count = sum(
+        1 for s in config.searches for b in s.boards if _selected(s.name, b)
+    )
     source_idx = 0
     for search in config.searches:
         exclude_pattern = _build_exclude_pattern(_excludes_for_search(config, search))
         for board in search.boards:
+            if not _selected(search.name, board):
+                continue
             source_idx += 1
             if _cancelled():
                 return state

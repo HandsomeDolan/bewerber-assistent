@@ -167,6 +167,7 @@ def _parse_multipart(headers, body: bytes) -> dict[str, list[tuple[bytes, Option
 def _run_discover_background(
     job_id: str, paths: Paths, cancel_event: threading.Event | None = None,
     per_board_limit: int = 15,
+    sources: list[tuple[str, str]] | None = None,
 ) -> None:
     """Background-Worker fuer den manuellen Discover-Lauf.
 
@@ -207,6 +208,7 @@ def _run_discover_background(
             checkpoint=lambda st: save_state(paths.state_json, st),
             cancel=cancel_event,
             per_board_limit=per_board_limit,
+            sources=sources,
         )
         save_state(paths.state_json, state)
         jobs_after = len(state.jobs)
@@ -1192,6 +1194,22 @@ class _Handler(BaseHTTPRequestHandler):
                 "error": "limit muss eine Zahl zwischen 1 und 100 sein",
             })
             return
+        sources = body.get("sources")
+        if sources is not None:
+            valid = (
+                isinstance(sources, list) and len(sources) > 0
+                and all(
+                    isinstance(s, list) and len(s) == 2
+                    and all(isinstance(x, str) for x in s)
+                    for s in sources
+                )
+            )
+            if not valid:
+                self._send_json(400, {
+                    "error": "sources muss eine nicht-leere Liste aus [suche, board]-Paaren sein",
+                })
+                return
+            sources = [tuple(s) for s in sources]
         with _discover_lock:
             if _discover_state["current_id"] is not None:
                 self._send_json(409, {
@@ -1209,7 +1227,7 @@ class _Handler(BaseHTTPRequestHandler):
             _discover_state["cancel_event"] = cancel_event
         threading.Thread(
             target=_run_discover_background,
-            args=(job_id, self.paths, cancel_event, limit),
+            args=(job_id, self.paths, cancel_event, limit, sources),
             daemon=True,
         ).start()
         self._send_json(200, {"ok": True, "job_id": job_id})

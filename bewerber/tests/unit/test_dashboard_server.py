@@ -2078,7 +2078,7 @@ def test_run_discover_background_wires_progress_checkpoint_cancel(
 
     def fake_discover(config, *, state, master_yaml_text, llm,
                       progress=None, checkpoint=None, cancel=None,
-                      per_board_limit=None):
+                      per_board_limit=None, sources=None):
         progress({"search": "A", "board": "arbeitsagentur", "done": 1, "total": 3})
         checkpoint(state)
         cancel.set()  # simuliert: Nutzer hat waehrend des Laufs abgebrochen
@@ -2217,3 +2217,23 @@ def test_verify_anlagen_resolves_relative_paths_against_user_dir(running_server)
     })
     assert code == 200
     assert body["missing"] == ["anlagen/gibtsnicht.pdf"]
+
+
+def test_discover_run_passes_sources_selection(running_server, tmp_path, mocker):
+    _reset_discover_state()
+    worker = mocker.patch("bewerber.dashboard.server._run_discover_background", autospec=True)
+    code, _ = _post_json(running_server, "/api/discover/run", {
+        "limit": 15, "sources": [["A", "linkedin"], ["B", "arbeitsagentur"]],
+    })
+    assert code == 200
+    import time as _t
+    _t.sleep(0.2)
+    assert worker.call_args.args[4] == [("A", "linkedin"), ("B", "arbeitsagentur")]
+    _reset_discover_state()
+
+
+def test_discover_run_rejects_malformed_sources(running_server):
+    _reset_discover_state()
+    code, body = _post_json(running_server, "/api/discover/run", {"sources": "alle"})
+    assert code == 400
+    assert "error" in body

@@ -482,3 +482,34 @@ def test_discover_per_board_limit_caps_scored_jobs(mocker, monkeypatch):
     assert len(state.jobs) == 3
     assert seen[-1]["total"] == 3
     assert adapter.search.call_args.kwargs.get("limit") == 3
+
+
+def test_discover_sources_filter_limits_to_selected_combos(mocker, monkeypatch):
+    """sources: nur ausgewaehlte Suche-x-Board-Kombis laufen; der
+    Quellen-Zaehler im Progress spiegelt die Auswahl."""
+    adapter_a = mocker.Mock()
+    adapter_a.name = "arbeitsagentur"
+    adapter_a.search.return_value = [_job("arbeitsagentur", "1")]
+    adapter_b = mocker.Mock()
+    adapter_b.name = "linkedin"
+    adapter_b.search.return_value = [_job("linkedin", "2")]
+    monkeypatch.setattr(
+        "bewerber.discovery.orchestrator.scraper_registry",
+        {"arbeitsagentur": adapter_a, "linkedin": adapter_b},
+    )
+    mocker.patch("bewerber.discovery.orchestrator.enrich_job", side_effect=lambda j: j)
+    mocker.patch("bewerber.discovery.orchestrator.score_job", return_value=_fake_scoring())
+
+    config = SearchesConfig(searches=[
+        SearchEntry(name="A", keywords=["KI"], boards=["arbeitsagentur", "linkedin"]),
+        SearchEntry(name="B", keywords=["PM"], boards=["arbeitsagentur"]),
+    ])
+    seen = []
+    state = BewerberState()
+    discover(config, state=state, master_yaml_text="m", llm=mocker.Mock(),
+             progress=seen.append, sources=[("A", "linkedin")])
+
+    adapter_a.search.assert_not_called()
+    adapter_b.search.assert_called_once()
+    assert list(state.jobs) == ["linkedin-2"]
+    assert seen[-1]["source_idx"] == 1 and seen[-1]["source_count"] == 1

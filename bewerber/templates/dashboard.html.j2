@@ -366,11 +366,11 @@ th[data-sort] .arrow { font-size: 11px; margin-left: 3px; }
         <b>60 Jobs</b> <span class="muted">— maximal</span>
         <span class="muted" id="discover-est-60" style="margin-left:auto;"></span></label>
     </div>
-    <div id="discover-sources" style="font-size:12.5px; margin:12px 0 0; line-height:1.7;"></div>
+    <div id="discover-sources" style="font-size:12.5px; margin:12px 0 0; line-height:1.7; max-height:180px; overflow-y: auto; padding-right:6px;"></div>
     <p class="muted" id="discover-combos-hint" style="font-size:12px; margin:6px 0 0;"></p>
     <div style="margin-top:14px; display:flex; justify-content:flex-end; gap:8px;">
       <button class="btn btn-secondary" onclick="closeDiscoverDialog()">Abbrechen</button>
-      <button class="btn btn-primary" onclick="startDiscoverRun()">▷ Starten</button>
+      <button class="btn btn-primary" id="discover-start-btn" onclick="startDiscoverRun()">▷ Starten</button>
     </div>
   </div>
 </div>
@@ -1201,22 +1201,46 @@ async function openDiscoverDialog() {
         .reduce((n, s) => n + ((s.boards || []).length || 0), 0) || 1;
     }
   } catch (e) { /* Fallback-Schaetzung */ }
-  // ~9 s pro Job (Enrich + LLM-Scoring) + ~20 s Scrape-Overhead pro Kombi
-  for (const v of [5, 15, 30, 60]) {
-    const secs = DISCOVER_COMBOS * (v * 9 + 20);
-    document.getElementById("discover-est-" + v).textContent = fmtDuration(secs);
-  }
   const srcEl = document.getElementById("discover-sources");
   if (DISCOVER_SEARCHES.length) {
-    srcEl.innerHTML = "<b>Durchsucht werden:</b><br>" + DISCOVER_SEARCHES.map(s =>
-      `· ${escapeHtml(s.name || "(unbenannt)")} → ${(s.boards || []).map(escapeHtml).join(", ") || "—"}`
-    ).join("<br>");
+    const rows = [];
+    for (const s of DISCOVER_SEARCHES) {
+      for (const b of (s.boards || [])) {
+        rows.push(`<label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" class="discover-src-cb" checked
+                 data-search="${escapeAttr(s.name || "")}" data-board="${escapeAttr(b)}"
+                 onchange="updateDiscoverEstimates()" style="accent-color: var(--color-accent);">
+          <span>${escapeHtml(s.name || "(unbenannt)")} → ${escapeHtml(b)}</span>
+        </label>`);
+      }
+    }
+    srcEl.innerHTML = "<b>Durchsucht werden (abwaehlbar):</b>" + rows.join("");
   } else {
     srcEl.innerHTML = '<span class="muted">Keine Suchen konfiguriert — bitte zuerst unter „Suchen" anlegen.</span>';
   }
-  document.getElementById("discover-combos-hint").textContent =
-    `${DISCOVER_COMBOS} Quellen-Kombi${DISCOVER_COMBOS === 1 ? "" : "s"} (Suche × Board) insgesamt.`;
+  updateDiscoverEstimates();
   document.getElementById("discover-dialog").style.display = "";
+}
+
+function selectedDiscoverSources() {
+  return Array.from(document.querySelectorAll(".discover-src-cb:checked"))
+    .map(cb => [cb.dataset.search, cb.dataset.board]);
+}
+
+function updateDiscoverEstimates() {
+  const checked = document.querySelectorAll(".discover-src-cb:checked").length;
+  const totalCbs = document.querySelectorAll(".discover-src-cb").length;
+  const combos = totalCbs ? checked : DISCOVER_COMBOS;
+  for (const v of [5, 15, 30, 60]) {
+    const secs = combos * (v * 9 + 20);
+    document.getElementById("discover-est-" + v).textContent =
+      combos ? fmtDuration(secs) : "—";
+  }
+  document.getElementById("discover-combos-hint").textContent = totalCbs
+    ? `${checked} von ${totalCbs} Quellen-Kombi${totalCbs === 1 ? "" : "s"} ausgewaehlt.`
+    : `${DISCOVER_COMBOS} Quellen-Kombi${DISCOVER_COMBOS === 1 ? "" : "s"} (Suche × Board) insgesamt.`;
+  const startBtn = document.getElementById("discover-start-btn");
+  if (startBtn) startBtn.disabled = totalCbs > 0 && checked === 0;
 }
 function closeDiscoverDialog() {
   document.getElementById("discover-dialog").style.display = "none";
@@ -1226,6 +1250,7 @@ async function startDiscoverRun() {
   const limit = parseInt(
     (document.querySelector('input[name="discover-limit"]:checked') || {value: "15"}).value, 10,
   );
+  const sources = selectedDiscoverSources();
   closeDiscoverDialog();
   const btn = document.getElementById("discover-run-btn");
   const statusEl = document.getElementById("discover-run-status");
@@ -1236,7 +1261,7 @@ async function startDiscoverRun() {
     const resp = await fetch("/api/discover/run", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({limit}),
+      body: JSON.stringify(sources.length ? {limit, sources} : {limit}),
     });
     const body = await resp.json();
     if (!resp.ok) {

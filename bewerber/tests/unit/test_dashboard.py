@@ -126,6 +126,10 @@ def test_render_dashboard_has_discover_limit_dialog():
     assert 'id="discover-sources"' in html
     assert "pro Lauf" in html
     assert "wie viele Jobs schon in deiner" in html
+    # Quellen an-/abwaehlbar + scrollbare Liste + Start-Button deaktivierbar
+    assert "discover-src-cb" in html
+    assert 'id="discover-start-btn"' in html
+    assert "overflow-y:auto" in html.replace(" ", "") or "overflow-y: auto" in html
 
 
 def test_render_anlagen_upload_auto_adds_cards_and_pi_friendly_hints():
