@@ -95,9 +95,12 @@ def discover(
     def _cancelled() -> bool:
         return cancel is not None and cancel.is_set()
 
+    source_count = sum(len(s.boards) for s in config.searches)
+    source_idx = 0
     for search in config.searches:
         exclude_pattern = _build_exclude_pattern(_excludes_for_search(config, search))
         for board in search.boards:
+            source_idx += 1
             if _cancelled():
                 return state
             adapter = scraper_registry.get(board)
@@ -141,6 +144,7 @@ def discover(
                     progress({
                         "search": search.name, "board": board,
                         "done": done, "total": total,
+                        "source_idx": source_idx, "source_count": source_count,
                     })
             if checkpoint is not None:
                 checkpoint(state)

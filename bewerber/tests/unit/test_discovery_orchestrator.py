@@ -383,8 +383,10 @@ def test_discover_reports_progress_per_job(mocker, monkeypatch):
 
     per_job = [p for p in seen if p.get("done")]
     assert per_job == [
-        {"search": "A", "board": "arbeitsagentur", "done": 1, "total": 2},
-        {"search": "A", "board": "arbeitsagentur", "done": 2, "total": 2},
+        {"search": "A", "board": "arbeitsagentur", "done": 1, "total": 2,
+         "source_idx": 1, "source_count": 1},
+        {"search": "A", "board": "arbeitsagentur", "done": 2, "total": 2,
+         "source_idx": 1, "source_count": 1},
     ]
 
 

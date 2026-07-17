@@ -271,6 +271,23 @@ th[data-sort] .arrow { font-size: 11px; margin-left: 3px; }
 .discover-limit-opt:has(input:checked) { border-color: var(--color-accent); background: var(--color-accent-100); }
 .discover-limit-opt input { accent-color: var(--color-accent); }
 
+.header-actions-col { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding-top: 10px; }
+.header-actions-col .header-actions { padding-top: 0; }
+.discover-bar-track {
+  width: 320px; height: 8px; border-radius: 4px; overflow: hidden;
+  background: var(--color-neutral-300);
+}
+#discover-progress-bar {
+  height: 100%; width: 0%; background: var(--color-accent);
+  border-radius: 4px; transition: width 0.5s;
+}
+#discover-progress-bar.indeterminate {
+  width: 30% !important; animation: bar-slide 1.4s ease-in-out infinite;
+}
+@keyframes bar-slide {
+  0% { margin-left: 0; } 50% { margin-left: 70%; } 100% { margin-left: 0; }
+}
+
 /* Trello-Style Karten-Modal */
 .card-modal { position: fixed; inset: 0; z-index: 1000; }
 .card-modal-backdrop { position: absolute; inset: 0; background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent); }
@@ -309,14 +326,17 @@ th[data-sort] .arrow { font-size: 11px; margin-left: 3px; }
       {% if applied_count %} · {{ applied_count }} beworben{% endif %}
       {% if interview_count %} · {{ interview_count }} eingeladen{% endif %}
     </div>
-    <div class="meta" style="margin-bottom:0;">
-      <span id="discover-run-status" style="font-size:12px; color: var(--color-accent-700);"></span>
-    </div>
   </div>
-  <div class="header-actions">
-    <button class="btn btn-secondary" onclick="openAddDialog()">+ Ausschreibung</button>
-    <button class="btn btn-secondary" id="discover-cancel-btn" onclick="cancelDiscoverRun()" style="display:none; color: var(--color-accent-800);">■ Abbrechen</button>
-    <button class="btn btn-primary" id="discover-run-btn" onclick="openDiscoverDialog()">▷ Discover starten</button>
+  <div class="header-actions-col">
+    <div class="header-actions">
+      <button class="btn btn-secondary" onclick="openAddDialog()">+ Ausschreibung</button>
+      <button class="btn btn-secondary" id="discover-cancel-btn" onclick="cancelDiscoverRun()" style="display:none; color: var(--color-accent-800);">■ Abbrechen</button>
+      <button class="btn btn-primary" id="discover-run-btn" onclick="openDiscoverDialog()">▷ Discover starten</button>
+    </div>
+    <div id="discover-progress-wrap" style="display:none;">
+      <div class="discover-bar-track"><div id="discover-progress-bar"></div></div>
+    </div>
+    <span id="discover-run-status" style="font-size:12px; color: var(--color-accent-700); text-align:right;"></span>
   </div>
 </div>
 
@@ -1258,9 +1278,26 @@ async function cancelDiscoverRun() {
 function discoverProgressText(data) {
   const p = data.progress;
   if (p && p.total) {
-    return `⏳ ${p.board}: Job ${p.done}/${p.total} gescored (Suche "${p.search}")`;
+    const src = p.source_count
+      ? `Quelle ${p.source_idx} von ${p.source_count} (${p.board}) — ` : `${p.board}: `;
+    return `${src}Job ${p.done} von ${p.total}`;
   }
-  return `⏳ laeuft (seit ${data.started_at || "?"})`;
+  const at = (data.started_at || "").slice(11, 16);
+  return `⏳ laeuft${at ? " (seit " + at + " Uhr)" : " ..."} — Quellen werden durchsucht`;
+}
+
+function updateDiscoverBar(data) {
+  const wrap = document.getElementById("discover-progress-wrap");
+  const bar = document.getElementById("discover-progress-bar");
+  const p = data && data.progress;
+  if (!data) { wrap.style.display = "none"; return; }
+  wrap.style.display = "";
+  if (p && p.total) {
+    bar.classList.remove("indeterminate");
+    bar.style.width = Math.round((p.done / p.total) * 100) + "%";
+  } else {
+    bar.classList.add("indeterminate");
+  }
 }
 
 async function pollDiscoverStatus(jobId) {
@@ -1272,6 +1309,7 @@ async function pollDiscoverStatus(jobId) {
       const data = await resp.json();
       if (data.status === "running" || data.status === "cancelling") {
         setDiscoverCancelVisible(data.status === "running");
+        updateDiscoverBar(data);
         statusEl.textContent = data.status === "cancelling"
           ? "⏳ breche ab - sichere Teilergebnisse ..."
           : discoverProgressText(data);
@@ -1279,6 +1317,7 @@ async function pollDiscoverStatus(jobId) {
         return;
       }
       setDiscoverCancelVisible(false);
+      updateDiscoverBar(null);
       if (data.status === "done" || data.status === "cancelled") {
         const prefix = data.status === "cancelled" ? "■ abgebrochen" : "✓ fertig";
         statusEl.style.color = "#1a5b2b";
@@ -1297,6 +1336,7 @@ async function pollDiscoverStatus(jobId) {
       statusEl.style.color = "var(--color-accent-800)";
       statusEl.textContent = "Polling-Fehler: " + e.message;
       setDiscoverCancelVisible(false);
+      updateDiscoverBar(null);
       btn.disabled = false;
       btn.textContent = "▷ Discover starten";
     }

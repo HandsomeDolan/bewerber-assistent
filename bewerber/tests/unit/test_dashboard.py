@@ -137,3 +137,14 @@ def test_render_anlagen_upload_auto_adds_cards_and_pi_friendly_hints():
     assert "onAnlagenUploaded" in html and "function onAnlagenUploaded" in html
     assert "automatisch als Anlage eingetragen" in html
     assert "Pfade muessen <b>absolut</b> sein" not in html
+
+
+def test_render_dashboard_discover_progress_bar_under_actions():
+    """Laufender Discover-Run: Status + Fortschrittsbalken unter den
+    Header-Buttons, Text im Format 'Quelle i von n — Job x von y'."""
+    html = render_dashboard(BewerberState(), current_user="steve")
+    assert 'id="discover-progress-wrap"' in html
+    assert 'id="discover-progress-bar"' in html
+    assert "Quelle ${" in html  # JS-Template fuer den Fortschrittstext
+    # Status haengt an der Actions-Spalte rechts, nicht mehr in der Meta-Zeile
+    assert html.index('class="header-actions"') < html.index('id="discover-run-status"')
