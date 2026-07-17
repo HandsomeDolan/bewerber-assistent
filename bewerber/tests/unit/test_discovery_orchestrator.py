@@ -463,3 +463,20 @@ def test_discover_cancelled_run_still_checkpoints(mocker, monkeypatch):
     )
 
     checkpoints.assert_called_once_with(state)
+
+
+def test_discover_per_board_limit_caps_scored_jobs(mocker, monkeypatch):
+    """per_board_limit: hoechstens N Jobs pro Suche x Board werden gescored;
+    das Limit wird auch an den Adapter durchgereicht (schnellerer Scrape)."""
+    jobs = [_job(ext=str(i)) for i in range(8)]
+    adapter, score, config = _single_board_setup(mocker, monkeypatch, jobs)
+
+    seen = []
+    state = BewerberState()
+    discover(config, state=state, master_yaml_text="m", llm=mocker.Mock(),
+             per_board_limit=3, progress=seen.append)
+
+    assert score.call_count == 3
+    assert len(state.jobs) == 3
+    assert seen[-1]["total"] == 3
+    assert adapter.search.call_args.kwargs.get("limit") == 3

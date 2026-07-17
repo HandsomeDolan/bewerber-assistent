@@ -262,6 +262,15 @@ th[data-sort] .arrow { font-size: 11px; margin-left: 3px; }
 .tag-missing { background: var(--color-accent-100); color: var(--color-accent-800); text-decoration: line-through; }
 .red-flag { color: var(--color-accent-800); font-size: 13.5px; margin: 3px 0; }
 
+.discover-limit-opt {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  padding: 10px 14px; border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md); font-size: 14px;
+}
+.discover-limit-opt:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+.discover-limit-opt:has(input:checked) { border-color: var(--color-accent); background: var(--color-accent-100); }
+.discover-limit-opt input { accent-color: var(--color-accent); }
+
 /* Trello-Style Karten-Modal */
 .card-modal { position: fixed; inset: 0; z-index: 1000; }
 .card-modal-backdrop { position: absolute; inset: 0; background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent); }
@@ -307,7 +316,37 @@ th[data-sort] .arrow { font-size: 11px; margin-left: 3px; }
   <div class="header-actions">
     <button class="btn btn-secondary" onclick="openAddDialog()">+ Ausschreibung</button>
     <button class="btn btn-secondary" id="discover-cancel-btn" onclick="cancelDiscoverRun()" style="display:none; color: var(--color-accent-800);">■ Abbrechen</button>
-    <button class="btn btn-primary" id="discover-run-btn" onclick="startDiscoverRun()">▷ Discover starten</button>
+    <button class="btn btn-primary" id="discover-run-btn" onclick="openDiscoverDialog()">▷ Discover starten</button>
+  </div>
+</div>
+
+<div id="discover-dialog" class="batch-modal" style="display:none;">
+  <div class="batch-modal-backdrop" onclick="closeDiscoverDialog()"></div>
+  <div class="batch-modal-content" style="width: 480px;">
+    <h2>Discover starten</h2>
+    <p style="font-size:13.5px; margin:0 0 12px;">
+      Wie viele Jobs sollen <b>pro Quelle</b> (Suche × Board) maximal geholt
+      und gescort werden?
+    </p>
+    <div id="discover-limit-options" style="display:flex; flex-direction:column; gap:8px;">
+      <label class="discover-limit-opt"><input type="radio" name="discover-limit" id="discover-limit-5" value="5">
+        <b>5 Jobs</b> <span class="muted">— schneller Check</span>
+        <span class="muted" id="discover-est-5" style="margin-left:auto;"></span></label>
+      <label class="discover-limit-opt"><input type="radio" name="discover-limit" id="discover-limit-15" value="15" checked>
+        <b>15 Jobs</b> <span class="muted">— empfohlen</span>
+        <span class="muted" id="discover-est-15" style="margin-left:auto;"></span></label>
+      <label class="discover-limit-opt"><input type="radio" name="discover-limit" id="discover-limit-30" value="30">
+        <b>30 Jobs</b> <span class="muted">— gruendlich</span>
+        <span class="muted" id="discover-est-30" style="margin-left:auto;"></span></label>
+      <label class="discover-limit-opt"><input type="radio" name="discover-limit" id="discover-limit-60" value="60">
+        <b>60 Jobs</b> <span class="muted">— maximal</span>
+        <span class="muted" id="discover-est-60" style="margin-left:auto;"></span></label>
+    </div>
+    <p class="muted" id="discover-combos-hint" style="font-size:12px; margin:10px 0 0;"></p>
+    <div style="margin-top:14px; display:flex; justify-content:flex-end; gap:8px;">
+      <button class="btn btn-secondary" onclick="closeDiscoverDialog()">Abbrechen</button>
+      <button class="btn btn-primary" onclick="startDiscoverRun()">▷ Starten</button>
+    </div>
   </div>
 </div>
 
@@ -1113,18 +1152,57 @@ async function createBriefing(jid, evt) {
 // Manueller Discover-Run aus dem Dashboard
 // ---------------------------------------------------------------------------
 
-async function startDiscoverRun() {
+// Anzahl Suche-x-Board-Kombis aus der Such-Konfiguration (fuer die Zeitschaetzung)
+let DISCOVER_COMBOS = 3;
+
+function fmtDuration(seconds) {
+  if (seconds < 60) return "unter 1 Min.";
+  const min = Math.round(seconds / 60);
+  return "≈ " + (min >= 10 ? Math.round(min / 5) * 5 : min) + " Min.";
+}
+
+async function openDiscoverDialog() {
   if (!IS_HTTP) {
     alert("Discover-Run geht nur ueber 'bewerber serve' (HTTP).");
     return;
   }
+  try {
+    const resp = await fetch("/api/searches");
+    if (resp.ok) {
+      const cfg = await resp.json();
+      DISCOVER_COMBOS = (cfg.searches || [])
+        .reduce((n, s) => n + ((s.boards || []).length || 0), 0) || 1;
+    }
+  } catch (e) { /* Fallback-Schaetzung */ }
+  // ~9 s pro Job (Enrich + LLM-Scoring) + ~20 s Scrape-Overhead pro Kombi
+  for (const v of [5, 15, 30, 60]) {
+    const secs = DISCOVER_COMBOS * (v * 9 + 20);
+    document.getElementById("discover-est-" + v).textContent = fmtDuration(secs);
+  }
+  document.getElementById("discover-combos-hint").textContent =
+    `Deine Konfiguration hat ${DISCOVER_COMBOS} Quellen-Kombi${DISCOVER_COMBOS === 1 ? "" : "s"} (Suche × Board). Bereits bekannte, unveraenderte Jobs gehen schneller.`;
+  document.getElementById("discover-dialog").style.display = "";
+}
+function closeDiscoverDialog() {
+  document.getElementById("discover-dialog").style.display = "none";
+}
+
+async function startDiscoverRun() {
+  const limit = parseInt(
+    (document.querySelector('input[name="discover-limit"]:checked') || {value: "15"}).value, 10,
+  );
+  closeDiscoverDialog();
   const btn = document.getElementById("discover-run-btn");
   const statusEl = document.getElementById("discover-run-status");
   btn.disabled = true;
   btn.textContent = "⏳ laeuft ...";
   statusEl.textContent = "Discover gestartet ...";
   try {
-    const resp = await fetch("/api/discover/run", {method: "POST"});
+    const resp = await fetch("/api/discover/run", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({limit}),
+    });
     const body = await resp.json();
     if (!resp.ok) {
       if (resp.status === 409 && body.current_job_id) {

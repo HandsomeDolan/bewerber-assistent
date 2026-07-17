@@ -76,6 +76,7 @@ def discover(
     progress: Optional[Callable[[dict], None]] = None,
     checkpoint: Optional[Callable[[BewerberState], None]] = None,
     cancel: Optional[threading.Event] = None,
+    per_board_limit: Optional[int] = None,
 ) -> BewerberState:
     """Run scrape → enrich → score → upsert for each search × board.
 
@@ -86,6 +87,8 @@ def discover(
     checkpoint: nach jedem fertigen Board mit dem State gerufen (Zwischenspeichern);
                 auch beim Abbruch, damit Teilergebnisse erhalten bleiben.
     cancel:     Event; sobald gesetzt, stoppt der Lauf vor dem naechsten Job/Board.
+    per_board_limit: hoechstens N Jobs pro Suche x Board scoren/hinzufuegen
+                (wird auch an die Scraper durchgereicht, um Scrape-Zeit zu sparen).
     """
     state.last_discovery_run = _now_iso()
 
@@ -109,6 +112,7 @@ def discover(
                     keywords=search.keywords,
                     locations=config.defaults.locations,
                     max_age_days=config.defaults.date_posted_max_days,
+                    limit=per_board_limit,
                 )
             except Exception as e:  # noqa: BLE001 - isolation is the whole point
                 state.scrape_errors[board] = ScrapeError(
@@ -126,6 +130,8 @@ def discover(
                 search_name=search.name,
             )
 
+            if per_board_limit:
+                raw_jobs = raw_jobs[:per_board_limit]
             total = len(raw_jobs)
             for done, raw in enumerate(raw_jobs, start=1):
                 if _cancelled():

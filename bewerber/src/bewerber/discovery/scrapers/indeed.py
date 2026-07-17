@@ -56,19 +56,25 @@ class IndeedAdapter:
         keywords: list[str],
         locations: list[str],
         max_age_days: int,
+        limit: int | None = None,
     ) -> list[RawJob]:
         results: list[RawJob] = []
         for kw in keywords or [""]:
             for loc in locations or [""]:
+                remaining = (limit - len(results)) if limit else 30
+                if remaining <= 0:
+                    return results
                 df = scrape_jobs(
                     site_name=["indeed"],
                     search_term=kw,
                     location=loc,
                     hours_old=max_age_days * 24,
-                    results_wanted=30,
+                    results_wanted=remaining,
                     country_indeed="Germany",
                 )
                 for _, row in df.iterrows():
+                    if limit and len(results) >= limit:
+                        return results
                     results.append(jobspy_row_to_raw_job_indeed(row))
         return results
 

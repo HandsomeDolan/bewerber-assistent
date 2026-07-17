@@ -37,6 +37,15 @@ def test_adapter_calls_api_and_parses(mocker, fixtures_dir: Path):
         return_value=fake_resp,
     )
 
+    # Fixture-Daten sind statisch -> Datum einfrieren, sonst altert der Test
+    # aus dem max_age_days-Fenster heraus (Date-Rot).
+    import datetime as _dt
+    class _FrozenDate(_dt.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 6, 12)
+    mocker.patch("bewerber.discovery.scrapers.arbeitsagentur.date", _FrozenDate)
+
     adapter = ArbeitsagenturAdapter(api_key="test-key")
     jobs = adapter.search(keywords=["KI Manager"], locations=["Leipzig"], max_age_days=30)
     assert len(jobs) == 2

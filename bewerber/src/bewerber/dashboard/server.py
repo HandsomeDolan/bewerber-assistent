@@ -166,6 +166,7 @@ def _parse_multipart(headers, body: bytes) -> dict[str, list[tuple[bytes, Option
 
 def _run_discover_background(
     job_id: str, paths: Paths, cancel_event: threading.Event | None = None,
+    per_board_limit: int = 15,
 ) -> None:
     """Background-Worker fuer den manuellen Discover-Lauf.
 
@@ -205,6 +206,7 @@ def _run_discover_background(
             progress=_progress,
             checkpoint=lambda st: save_state(paths.state_json, st),
             cancel=cancel_event,
+            per_board_limit=per_board_limit,
         )
         save_state(paths.state_json, state)
         jobs_after = len(state.jobs)
@@ -1175,6 +1177,13 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._session_user():
             self._send_json(401, {"error": "Login erforderlich"})
             return
+        body = self._read_json()
+        limit = body.get("limit", 15)
+        if not isinstance(limit, int) or not (1 <= limit <= 100):
+            self._send_json(400, {
+                "error": "limit muss eine Zahl zwischen 1 und 100 sein",
+            })
+            return
         with _discover_lock:
             if _discover_state["current_id"] is not None:
                 self._send_json(409, {
@@ -1192,7 +1201,7 @@ class _Handler(BaseHTTPRequestHandler):
             _discover_state["cancel_event"] = cancel_event
         threading.Thread(
             target=_run_discover_background,
-            args=(job_id, self.paths, cancel_event),
+            args=(job_id, self.paths, cancel_event, limit),
             daemon=True,
         ).start()
         self._send_json(200, {"ok": True, "job_id": job_id})

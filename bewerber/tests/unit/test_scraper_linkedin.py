@@ -69,3 +69,32 @@ def test_adapter_registers_in_scraper_registry():
     from bewerber.discovery.scrapers.linkedin import LinkedInAdapter  # noqa: F401  triggers registration
     assert "linkedin" in scraper_registry
     assert isinstance(scraper_registry["linkedin"], LinkedInAdapter)
+
+
+def test_adapter_respects_limit_across_keyword_location_combos(mocker):
+    """limit gilt pro Quelle GESAMT: scrape stoppt, sobald genug Jobs da sind."""
+    rows = [{"id": f"li-{i}", "job_url": f"https://li/{i}", "title": "t",
+             "company": "c", "location": "l", "date_posted": None,
+             "description": None} for i in range(10)]
+    fake = mocker.patch(
+        "bewerber.discovery.scrapers.linkedin.scrape_jobs",
+        return_value=_fake_dataframe(rows),
+    )
+    jobs = LinkedInAdapter().search(["kw1", "kw2", "kw3"], ["Leipzig"], 14, limit=15)
+    assert len(jobs) == 15
+    # kw1 liefert 10, kw2 nochmal 10 (auf 15 gekappt) -> kw3 wird gar nicht gescrapt
+    assert fake.call_count == 2
+    # results_wanted wird auf den Rest gedrosselt
+    assert fake.call_args_list[1].kwargs["results_wanted"] == 5
+
+
+def test_adapter_without_limit_keeps_default_behaviour(mocker):
+    rows = [{"id": "li-1", "job_url": "https://li/1", "title": "t",
+             "company": "c", "location": "l", "date_posted": None,
+             "description": None}]
+    fake = mocker.patch(
+        "bewerber.discovery.scrapers.linkedin.scrape_jobs",
+        return_value=_fake_dataframe(rows),
+    )
+    LinkedInAdapter().search(["kw"], ["Leipzig"], 14)
+    assert fake.call_args.kwargs["results_wanted"] == 30

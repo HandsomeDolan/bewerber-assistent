@@ -56,19 +56,28 @@ kostet eine tote Gemini-Quota jetzt ~2 Fehlversuche pro Run statt Stunden.
    laden + upserten statt blind schreiben (Merge-on-Save).
 5. [ ] **Onboarding-Extraktion: Status/Abbruch** analog Discover (Timeout/Breaker greifen
    dort seit Fix 1+2 bereits; es fehlen Progress + Cancel).
-6. [ ] **`results_wanted=30` im LinkedIn-Adapter konfigurierbar machen**
-   (`discovery/scrapers/linkedin.py`). Optional dabei prüfen:
-   `linkedin_fetch_description=True` (JobSpy) statt Einzel-Fetches in `enrich_job`.
+6. [x] ~~`results_wanted=30` im LinkedIn-Adapter konfigurierbar machen~~ — erledigt
+   2026-07-17: Alle drei Adapter nehmen `limit` (gilt pro Quelle gesamt, drosselt auch
+   `results_wanted`/`size` und stoppt weitere Keyword/Ort-Kombis); Orchestrator kappt
+   zusätzlich via `per_board_limit`; UI-Dialog beim Discover-Start (5/15/30/60, Default
+   15, mit Zeitschätzung aus der Such-Konfiguration). Offen bleibt nur:
+   `linkedin_fetch_description=True` (JobSpy) statt Einzel-Fetches in `enrich_job` prüfen.
 
 ## Offen (Wartung / Tests)
 
-7. [ ] **5 vorbestehende Test-Fails auf main** (unabhängig von den Fixes, identisch auf
+7. [ ] **4 vorbestehende Test-Fails auf main** (unabhängig von den Fixes, identisch auf
    8a99ba7): `test_discovery_e2e` (Mock ohne `for_scoring`-Attribut — Mock veraltet seit
    Provider-Refactor), `test_e2e_profile`, `test_tailor_e2e`, `test_cli_b::
-   test_serve_calls_regen_then_open`, `test_scraper_arbeitsagentur::
-   test_adapter_calls_api_and_parses`.
+   test_serve_calls_regen_then_open`. (`test_scraper_arbeitsagentur` war Date-Rot —
+   2026-07-17 mit eingefrorenem Datum gefixt.)
 8. [ ] **WeasyPrint auf dem Mac**: Testlauf braucht `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`,
    sonst brechen 9 Module bei der Collection (`libgobject-2.0-0` nicht gefunden).
    In `conftest.py` oder Doku verankern.
 9. [ ] **Stale `bewerber/bewerber/`-Runtime-Ordner** überschattet das Paket bei Imports
    aus `cwd=bewerber/` (bekannt aus progress.md). Aufräumen oder umbenennen.
+
+## Offen (UI/UX)
+
+10. [ ] **Tooltips für Buttons und Funktionen** im Dashboard: Hover-Erklärungen für alle
+    interaktiven Elemente (z. B. „▶ Discover jetzt starten", „■ Abbrechen", Batch-Add,
+    Status-Badges/Filter), damit Funktionen ohne Doku verständlich sind.

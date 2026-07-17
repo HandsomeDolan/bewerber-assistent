@@ -12,6 +12,7 @@ class BoardAdapter(Protocol):
         keywords: list[str],
         locations: list[str],
         max_age_days: int,
+        limit: int | None = None,
     ) -> list[RawJob]: ...
 
 

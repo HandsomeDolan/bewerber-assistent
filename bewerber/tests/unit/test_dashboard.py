@@ -110,3 +110,15 @@ def test_render_dashboard_matches_organic_soll_layout():
     assert "detail-kicker" in html
     assert "tag-missing" in html
     assert "red-flag" in html
+
+
+def test_render_dashboard_has_discover_limit_dialog():
+    """Discover starten oeffnet einen Dialog mit Job-Limit (5/15/30/60,
+    Default 15) und Zeitschaetzung pro Option."""
+    html = render_dashboard(BewerberState(), current_user="steve")
+    assert 'id="discover-dialog"' in html
+    for v in (5, 15, 30, 60):
+        assert f'value="{v}"' in html
+    assert 'id="discover-limit-15"' in html and "checked" in html
+    assert "discover-est-" in html  # Zeitschaetzungs-Spans
+    assert "openDiscoverDialog" in html

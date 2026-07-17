@@ -2077,7 +2077,8 @@ def test_run_discover_background_wires_progress_checkpoint_cancel(
     )
 
     def fake_discover(config, *, state, master_yaml_text, llm,
-                      progress=None, checkpoint=None, cancel=None):
+                      progress=None, checkpoint=None, cancel=None,
+                      per_board_limit=None):
         progress({"search": "A", "board": "arbeitsagentur", "done": 1, "total": 3})
         checkpoint(state)
         cancel.set()  # simuliert: Nutzer hat waehrend des Laufs abgebrochen
@@ -2162,3 +2163,43 @@ def test_account_delete_wipes_workspace_registry_and_session(running_server):
     # Alte (signierte) Session ist ohne Registry-Eintrag wertlos
     code, _ = _get(running_server, "/api/discover/status")
     assert code == 401
+
+
+# ---------------------------------------------------------------------------
+# Discover: Job-Limit pro Quelle (5/15/30/60, Default 15)
+# ---------------------------------------------------------------------------
+
+def _reset_discover_state():
+    from bewerber.dashboard import server as srv
+    with srv._discover_lock:
+        srv._discover_state["current_id"] = None
+        srv._discover_state["cancel_event"] = None
+
+
+def test_discover_run_passes_limit_to_worker(running_server, tmp_path, mocker):
+    _reset_discover_state()
+    worker = mocker.patch("bewerber.dashboard.server._run_discover_background", autospec=True)
+    code, body = _post_json(running_server, "/api/discover/run", {"limit": 30})
+    assert code == 200
+    import time as _t
+    _t.sleep(0.2)  # Daemon-Thread startet asynchron
+    assert worker.call_args.args[3] == 30
+    _reset_discover_state()
+
+
+def test_discover_run_defaults_to_15(running_server, tmp_path, mocker):
+    _reset_discover_state()
+    worker = mocker.patch("bewerber.dashboard.server._run_discover_background", autospec=True)
+    code, _ = _post_json(running_server, "/api/discover/run", {})
+    assert code == 200
+    import time as _t
+    _t.sleep(0.2)
+    assert worker.call_args.args[3] == 15
+    _reset_discover_state()
+
+
+def test_discover_run_rejects_invalid_limit(running_server, tmp_path):
+    _reset_discover_state()
+    code, body = _post_json(running_server, "/api/discover/run", {"limit": 999})
+    assert code == 400
+    assert "error" in body

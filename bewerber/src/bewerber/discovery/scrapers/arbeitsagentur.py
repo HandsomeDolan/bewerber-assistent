@@ -61,6 +61,7 @@ class ArbeitsagenturAdapter:
         keywords: list[str],
         locations: list[str],
         max_age_days: int,
+        limit: int | None = None,
     ) -> list[RawJob]:
         key = self.api_key
         if not key:
@@ -73,7 +74,10 @@ class ArbeitsagenturAdapter:
         results: list[RawJob] = []
         cutoff = date.today() - timedelta(days=max_age_days)
         for loc in locations or [""]:
-            params = {"was": was, "wo": loc, "size": 50, "angebotsart": 1}
+            if limit and len(results) >= limit:
+                break
+            size = min(50, limit - len(results)) if limit else 50
+            params = {"was": was, "wo": loc, "size": size, "angebotsart": 1}
             resp = requests.get(
                 url=API_BASE,
                 headers={"X-API-Key": key, "User-Agent": "bewerber/0.1"},
@@ -84,6 +88,8 @@ class ArbeitsagenturAdapter:
             for job in parse_arbeitsagentur_response(resp.json()):
                 if job.posted_date and job.posted_date < cutoff:
                     continue
+                if limit and len(results) >= limit:
+                    break
                 results.append(job)
         return results
 

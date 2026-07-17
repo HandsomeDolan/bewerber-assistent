@@ -43,3 +43,18 @@ def test_adapter_registers_in_scraper_registry():
     from bewerber.discovery.scrapers.indeed import IndeedAdapter  # noqa
     assert "indeed" in scraper_registry
     assert isinstance(scraper_registry["indeed"], IndeedAdapter)
+
+
+def test_indeed_adapter_respects_limit(mocker):
+    rows = [{"id": f"in-{i}", "job_url": f"https://in/{i}", "title": "t",
+             "company": "c", "location": "l", "date_posted": None,
+             "description": None} for i in range(30)]
+    fake = mocker.patch(
+        "bewerber.discovery.scrapers.indeed.scrape_jobs",
+        return_value=_fake_dataframe(rows),
+    )
+    from bewerber.discovery.scrapers.indeed import IndeedAdapter
+    jobs = IndeedAdapter().search(["kw1", "kw2"], ["Leipzig"], 14, limit=5)
+    assert len(jobs) == 5
+    assert fake.call_count == 1  # erste Charge deckt das Limit
+    assert fake.call_args.kwargs["results_wanted"] == 5
