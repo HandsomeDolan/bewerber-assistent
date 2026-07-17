@@ -122,3 +122,7 @@ def test_render_dashboard_has_discover_limit_dialog():
     assert 'id="discover-limit-15"' in html and "checked" in html
     assert "discover-est-" in html  # Zeitschaetzungs-Spans
     assert "openDiscoverDialog" in html
+    # Klarstellung + Quellen-Auflistung im Dialog
+    assert 'id="discover-sources"' in html
+    assert "pro Lauf" in html
+    assert "wie viele Jobs schon in deiner" in html

@@ -324,9 +324,13 @@ th[data-sort] .arrow { font-size: 11px; margin-left: 3px; }
   <div class="batch-modal-backdrop" onclick="closeDiscoverDialog()"></div>
   <div class="batch-modal-content" style="width: 480px;">
     <h2>Discover starten</h2>
-    <p style="font-size:13.5px; margin:0 0 12px;">
-      Wie viele Jobs sollen <b>pro Quelle</b> (Suche × Board) maximal geholt
-      und gescort werden?
+    <p style="font-size:13.5px; margin:0 0 6px;">
+      Wie viele Jobs sollen <b>pro Quelle</b> maximal geholt und gescort werden?
+    </p>
+    <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.5;">
+      Das Limit gilt <b>pro Lauf</b> — unabhängig davon, wie viele Jobs schon in deiner
+      Tabelle stehen. Bereits bekannte Jobs werden nur aktualisiert (kein erneutes
+      Scoring) und zählen nicht als neu.
     </p>
     <div id="discover-limit-options" style="display:flex; flex-direction:column; gap:8px;">
       <label class="discover-limit-opt"><input type="radio" name="discover-limit" id="discover-limit-5" value="5">
@@ -342,7 +346,8 @@ th[data-sort] .arrow { font-size: 11px; margin-left: 3px; }
         <b>60 Jobs</b> <span class="muted">— maximal</span>
         <span class="muted" id="discover-est-60" style="margin-left:auto;"></span></label>
     </div>
-    <p class="muted" id="discover-combos-hint" style="font-size:12px; margin:10px 0 0;"></p>
+    <div id="discover-sources" style="font-size:12.5px; margin:12px 0 0; line-height:1.7;"></div>
+    <p class="muted" id="discover-combos-hint" style="font-size:12px; margin:6px 0 0;"></p>
     <div style="margin-top:14px; display:flex; justify-content:flex-end; gap:8px;">
       <button class="btn btn-secondary" onclick="closeDiscoverDialog()">Abbrechen</button>
       <button class="btn btn-primary" onclick="startDiscoverRun()">▷ Starten</button>
@@ -1154,6 +1159,7 @@ async function createBriefing(jid, evt) {
 
 // Anzahl Suche-x-Board-Kombis aus der Such-Konfiguration (fuer die Zeitschaetzung)
 let DISCOVER_COMBOS = 3;
+let DISCOVER_SEARCHES = [];
 
 function fmtDuration(seconds) {
   if (seconds < 60) return "unter 1 Min.";
@@ -1170,7 +1176,8 @@ async function openDiscoverDialog() {
     const resp = await fetch("/api/searches");
     if (resp.ok) {
       const cfg = await resp.json();
-      DISCOVER_COMBOS = (cfg.searches || [])
+      DISCOVER_SEARCHES = cfg.searches || [];
+      DISCOVER_COMBOS = DISCOVER_SEARCHES
         .reduce((n, s) => n + ((s.boards || []).length || 0), 0) || 1;
     }
   } catch (e) { /* Fallback-Schaetzung */ }
@@ -1179,8 +1186,16 @@ async function openDiscoverDialog() {
     const secs = DISCOVER_COMBOS * (v * 9 + 20);
     document.getElementById("discover-est-" + v).textContent = fmtDuration(secs);
   }
+  const srcEl = document.getElementById("discover-sources");
+  if (DISCOVER_SEARCHES.length) {
+    srcEl.innerHTML = "<b>Durchsucht werden:</b><br>" + DISCOVER_SEARCHES.map(s =>
+      `· ${escapeHtml(s.name || "(unbenannt)")} → ${(s.boards || []).map(escapeHtml).join(", ") || "—"}`
+    ).join("<br>");
+  } else {
+    srcEl.innerHTML = '<span class="muted">Keine Suchen konfiguriert — bitte zuerst unter „Suchen" anlegen.</span>';
+  }
   document.getElementById("discover-combos-hint").textContent =
-    `Deine Konfiguration hat ${DISCOVER_COMBOS} Quellen-Kombi${DISCOVER_COMBOS === 1 ? "" : "s"} (Suche × Board). Bereits bekannte, unveraenderte Jobs gehen schneller.`;
+    `${DISCOVER_COMBOS} Quellen-Kombi${DISCOVER_COMBOS === 1 ? "" : "s"} (Suche × Board) insgesamt.`;
   document.getElementById("discover-dialog").style.display = "";
 }
 function closeDiscoverDialog() {
