@@ -76,6 +76,19 @@ kostet eine tote Gemini-Quota jetzt ~2 Fehlversuche pro Run statt Stunden.
 9. [ ] **Stale `bewerber/bewerber/`-Runtime-Ordner** überschattet das Paket bei Imports
    aus `cwd=bewerber/` (bekannt aus progress.md). Aufräumen oder umbenennen.
 
+## Offen (Produkt / Monetarisierung)
+
+- [ ] **Discovery-Kosten kontrollieren → Paywall**: Jeder Discovery-Run erzeugt echte
+  LLM-Kosten (Scoring pro Job); Tailoring und Briefings ebenso. Die Nutzung soll deshalb
+  später hinter eine Paywall:
+  - **Free-Tier**: Kontingente — x Discoveries, x Tailorings, x Briefings
+    (konkrete Zahlen noch festlegen).
+  - **Paid**: zwei Preisstaffeln (Leistungsumfang je Staffel noch festlegen).
+  - Generell: Inhalte/Grenzen von Free- und Paid-Tier sind noch zu definieren.
+  - Technische Vorarbeit dafür vorhanden: Job-Limit pro Quelle (5/15/30/60) begrenzt
+    schon heute die Kosten pro Run; für Kontingente braucht es zusätzlich einen
+    Nutzungszähler pro User (discoveries/tailorings/briefings) im Workspace.
+
 ## Offen (UI/UX)
 
 10. [ ] **Tooltips für Buttons und Funktionen** im Dashboard: Hover-Erklärungen für alle
